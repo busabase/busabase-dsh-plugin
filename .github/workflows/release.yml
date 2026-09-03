@@ -1,0 +1,87 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "publish" to confirm publishing the current package.json version to npm'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    if: >-
+      github.repository == 'busabase/busabase-dsh-plugin' &&
+      github.ref == 'refs/heads/main' &&
+      github.event.inputs.confirm == 'publish'
+    environment: npm-publish
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify canonical release repository
+        run: |
+          if [ "$GITHUB_REPOSITORY" != "busabase/busabase-dsh-plugin" ]; then
+            echo "::error::Transfer this repository to busabase/busabase-dsh-plugin before publishing so npm provenance matches package metadata." >&2
+            exit 1
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.0"
+          registry-url: "https://registry.npmjs.org"
+
+      - name: Read canonical Skills revision
+        id: skills
+        run: echo "ref=$(node -p 'require("./package.json").busabaseSkills.ref')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout canonical Busabase Skills
+        uses: actions/checkout@v4
+        with:
+          repository: busabase/skills
+          ref: ${{ steps.skills.outputs.ref }}
+          path: .skills-source
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Read package version
+        id: package
+        run: echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
+
+      - name: Refuse to republish an existing version
+        run: |
+          set -euo pipefail
+          NAME="@busabase/dsh-plugin"
+          VERSION="${{ steps.package.outputs.version }}"
+          if npm view "${NAME}@${VERSION}" version >/dev/null 2>&1; then
+            echo "::error::${NAME}@${VERSION} is already published to npm. Bump the version before releasing." >&2
+            exit 1
+          fi
+          echo "${NAME}@${VERSION} is not yet published — proceeding."
+
+      - name: Publish
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}

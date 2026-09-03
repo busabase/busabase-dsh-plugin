@@ -1,0 +1,348 @@
+.bb-card-stack {
+  display: grid;
+  gap: 8px;
+  margin: 8px 0;
+}
+.bb-card {
+  width: 100%;
+  overflow: hidden;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 12px;
+  background: color-mix(in srgb, currentColor 3%, transparent);
+  color: inherit;
+}
+.bb-card-open,
+button.bb-card {
+  appearance: none;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 32px 1fr auto auto;
+  gap: 10px;
+  align-items: center;
+  text-align: left;
+  border: 0;
+  padding: 11px 12px;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+}
+.bb-card-open:hover,
+button.bb-card:hover {
+  background: color-mix(in srgb, #4f7cff 9%, transparent);
+}
+.bb-card-icon {
+  display: grid;
+  place-items: center;
+  width: 30px;
+  height: 30px;
+  border-radius: 8px;
+  background: #4f7cff18;
+  color: #6f8fff;
+  font-size: 18px;
+}
+.bb-card-main {
+  display: grid;
+  min-width: 0;
+}
+.bb-card-main strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-card-main small,
+.bb-tool-footer,
+.bb-eyebrow {
+  opacity: 0.65;
+  font-size: 12px;
+}
+.bb-card-action {
+  font-size: 12px;
+}
+.bb-pill {
+  padding: 3px 7px;
+  border-radius: 999px;
+  background: #f4b94225;
+  color: #c78b10;
+  font-size: 11px;
+}
+.bb-tool-footer {
+  display: flex;
+  justify-content: space-between;
+}
+.bb-tool-footer button,
+.bb-card .bb-review-actions button,
+.bb-panel button {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 5px 9px;
+  cursor: pointer;
+}
+.bb-panel {
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+  background: var(--color-background, #fff);
+  color: var(--color-foreground, #18181b);
+}
+.bb-panel-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  width: auto;
+  height: auto;
+  box-shadow: 0 24px 80px #0006;
+}
+.bb-panel-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  align-items: center;
+  min-height: 48px;
+  padding: 8px 12px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 12%, transparent);
+}
+.bb-panel-heading {
+  display: flex;
+  min-width: 0;
+  flex: 1;
+  align-items: center;
+  gap: 7px;
+}
+.bb-panel-header h2 {
+  min-width: 0;
+  overflow: hidden;
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.25;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.bb-panel-status {
+  display: inline-flex;
+  flex: 0 0 auto;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: color-mix(in srgb, #4f7cff 12%, transparent);
+  color: color-mix(in srgb, #4f7cff 85%, currentColor);
+  font-size: 11px;
+  font-weight: 600;
+}
+.bb-panel-header-controls {
+  position: relative;
+  display: flex;
+  flex: 0 0 auto;
+  align-items: center;
+  gap: 6px;
+}
+.bb-panel-header-controls .bb-review-actions {
+  display: flex;
+}
+.bb-panel-header-controls button,
+.bb-panel-header-controls .bb-button {
+  padding: 4px 8px;
+}
+.bb-panel-header-controls > button[aria-label="Close details"] {
+  font-size: 22px;
+  line-height: 1;
+  border: 0;
+}
+.bb-panel-toolbar {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  padding: 10px 18px;
+  border-bottom: 1px solid color-mix(in srgb, currentColor 10%, transparent);
+}
+.bb-more {
+  position: relative;
+}
+.bb-more-menu {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  z-index: 20;
+  display: grid;
+  width: max-content;
+  min-width: 180px;
+  gap: 4px;
+  padding: 6px;
+  border: 1px solid color-mix(in srgb, currentColor 14%, transparent);
+  border-radius: 10px;
+  background: var(--color-background, #fff);
+  box-shadow: 0 14px 36px #0002;
+}
+.bb-more-menu > button,
+.bb-more-menu > a,
+.bb-more-menu .bb-review-actions > button {
+  width: 100%;
+  justify-content: flex-start;
+  border: 0;
+  padding: 8px 10px;
+  text-align: left;
+  text-decoration: none;
+}
+.bb-more-menu > button:hover,
+.bb-more-menu > a:hover,
+.bb-more-menu .bb-review-actions > button:hover {
+  background: color-mix(in srgb, #4f7cff 9%, transparent);
+}
+.bb-more-menu .bb-review-actions {
+  display: contents;
+}
+.bb-live {
+  margin-right: auto;
+  font-size: 11px;
+  text-transform: uppercase;
+}
+.bb-live-connected {
+  color: #159957;
+}
+.bb-live-polling {
+  color: #b7791f;
+}
+.bb-inspector {
+  overflow: auto;
+  padding: 16px;
+}
+.bb-empty,
+.bb-error {
+  margin: 16px;
+  padding: 14px;
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.bb-error {
+  background: #d1434315;
+  color: #c33;
+}
+.bb-summary h3 {
+  margin: 6px 0 12px;
+}
+.bb-summary-type {
+  text-transform: uppercase;
+  font-size: 12px;
+  opacity: 0.65;
+}
+.bb-summary dl {
+  display: grid;
+  grid-template-columns: minmax(80px, auto) 1fr;
+  gap: 6px 12px;
+  font-size: 13px;
+}
+.bb-summary dt {
+  opacity: 0.55;
+}
+.bb-summary dd {
+  margin: 0;
+  overflow-wrap: anywhere;
+}
+.bb-airapp-frame,
+.bb-article-frame {
+  width: 100%;
+  min-height: 440px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 12px;
+  margin: 16px 0;
+  background: #fff;
+}
+.bb-article {
+  margin: 16px 0;
+  line-height: 1.65;
+}
+.bb-article pre {
+  white-space: pre-wrap;
+  font: inherit;
+}
+.bb-json {
+  margin-top: 18px;
+}
+.bb-json pre {
+  font-size: 11px;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  padding: 12px;
+  border-radius: 10px;
+  background: color-mix(in srgb, currentColor 5%, transparent);
+}
+.bb-review-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.bb-review-actions-compact {
+  justify-content: flex-end;
+  padding: 0 12px 10px 54px;
+}
+.bb-review-actions .primary {
+  background: #315efb;
+  color: #fff;
+}
+.bb-review-actions .danger {
+  color: #c33;
+}
+.bb-panel button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.bb-base-frame {
+  width: 100%;
+  min-height: 440px;
+  border: 1px solid color-mix(in srgb, currentColor 15%, transparent);
+  border-radius: 12px;
+  margin: 16px 0;
+  background: #fff;
+}
+.bb-node-actions {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: 14px;
+}
+.bb-embed-inspector {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+}
+.bb-embed-frame {
+  min-height: 0;
+  flex: 1;
+  margin: 0;
+}
+.bb-panel .bb-button {
+  border: 1px solid color-mix(in srgb, currentColor 20%, transparent);
+  background: transparent;
+  color: inherit;
+  border-radius: 8px;
+  padding: 5px 9px;
+  cursor: pointer;
+  text-decoration: none;
+}
+.bb-change-request-inspector {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  overflow: hidden;
+  padding: 0;
+}
+.bb-change-request-preview {
+  display: flex;
+  min-height: 0;
+  flex: 1;
+  flex-direction: column;
+  margin: 0;
+}
+.bb-change-request-frame {
+  width: 100%;
+  min-height: 0;
+  flex: 1;
+  border: 0;
+  margin: 0;
+  background: #fff;
+}
+.bb-change-request-inspector .bb-canonical-result {
+  padding: 16px;
+}

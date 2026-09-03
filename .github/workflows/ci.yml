@@ -1,0 +1,57 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Typecheck, test, build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "24.18.0"
+
+      - name: Read canonical Skills revision
+        id: skills
+        run: echo "ref=$(node -p 'require("./package.json").busabaseSkills.ref')" >> "$GITHUB_OUTPUT"
+
+      - name: Checkout canonical Busabase Skills
+        uses: actions/checkout@v4
+        with:
+          repository: busabase/skills
+          ref: ${{ steps.skills.outputs.ref }}
+          path: .skills-source
+
+      - name: Enable corepack
+        run: corepack enable
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Unit tests
+        run: pnpm test
+
+      - name: Build
+        run: pnpm build
+
+      - name: Verify npm package contents
+        run: pnpm pack:dry-run
