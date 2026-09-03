@@ -29,7 +29,7 @@ jobs:
 
       - name: Read canonical Skills revision
         id: skills
-        run: echo "ref=$(node -p \"require('./package.json').busabaseSkills.ref\")" >> "$GITHUB_OUTPUT"
+        run: echo "ref=$(node -p 'require("./package.json").busabaseSkills.ref')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout canonical Busabase Skills
         uses: actions/checkout@v4

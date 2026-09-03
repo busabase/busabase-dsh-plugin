@@ -42,7 +42,7 @@ jobs:
 
       - name: Read canonical Skills revision
         id: skills
-        run: echo "ref=$(node -p \"require('./package.json').busabaseSkills.ref\")" >> "$GITHUB_OUTPUT"
+        run: echo "ref=$(node -p 'require("./package.json").busabaseSkills.ref')" >> "$GITHUB_OUTPUT"
 
       - name: Checkout canonical Busabase Skills
         uses: actions/checkout@v4
@@ -68,7 +68,7 @@ jobs:
 
       - name: Read package version
         id: package
-        run: echo "version=$(node -p \"require('./package.json').version\")" >> "$GITHUB_OUTPUT"
+        run: echo "version=$(node -p 'require("./package.json").version')" >> "$GITHUB_OUTPUT"
 
       - name: Refuse to republish an existing version
         run: |
