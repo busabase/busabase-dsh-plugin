@@ -1,0 +1,6 @@
+- insert:
+    - id: busabase
+      name: '@busabase/dsh-plugin'
+      config:
+        baseUrl: 'http://localhost:15419'
+        serverName: 'busabase'

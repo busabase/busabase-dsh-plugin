@@ -1,0 +1,9 @@
+allowBuilds:
+  '@deepseek-ai/dsh-subprocess-local': true
+  '@google/genai': true
+  esbuild: true
+  koffi: true
+  node-pty: true
+  protobufjs: true
+minimumReleaseAgeExclude:
+  - busabase-sdk@0.18.0 || 0.20.0 || 0.30.0 || 0.30.1
