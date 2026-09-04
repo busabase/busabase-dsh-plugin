@@ -1,6 +1,7 @@
 import { existsSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import type { Context } from "@deepseek-ai/cordis";
+import type {} from "@deepseek-ai/dsh-credentials";
 import type {} from "@deepseek-ai/dsh-host-webserver";
 import * as mcpClient from "@deepseek-ai/dsh-mcp-client";
 import type {} from "@deepseek-ai/dsh-skill";
@@ -10,6 +11,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { Busabase } from "busabase-sdk";
 import { type BusabasePluginConfig, Config, resolveConfig } from "./config.js";
 import { registerMcpResultPreview } from "./mcp-result-preview.js";
+import { connectRemoteMcp, type RemoteMcpHandle } from "./oauth-mcp-client.js";
 import { BUSABASE_SYSTEM_PROMPT } from "./prompt.js";
 import { createBusabaseServerRouter } from "./server-router.js";
 import { BusabaseServerSupervisor } from "./server-supervisor.js";
@@ -40,17 +42,36 @@ export function registerBundledSkills(ctx: Context): () => void {
   );
 }
 
-export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
+export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Promise<void> {
   const config = resolveConfig(input);
-  const supervisor = new BusabaseServerSupervisor(config);
   const client = new Busabase({ baseUrl: config.baseUrl, webUrl: config.baseUrl });
-  registerMcpResultPreview(ctx, client, config.serverName);
   registerBundledSkills(ctx);
   ctx.systemPrompt.section({
     name: "busabase:workspace",
     order: 160,
     text: BUSABASE_SYSTEM_PROMPT,
   });
+  if (config.connection.mode === "remote") {
+    let handle!: RemoteMcpHandle;
+    ctx.effect(() => {
+      const credentials = ctx.get("credentials", false);
+      if (!credentials)
+        throw new Error(
+          "busabase: connecting to a remote (Cloud) Busabase server requires the credentials service",
+        );
+      handle = connectRemoteMcp(ctx, config, credentials);
+      return async () => handle.dispose();
+    }, "busabase: cloud mcp connection");
+    const outcome = await handle.ready;
+    if (outcome.error)
+      throw new Error(
+        `busabase: initial Cloud MCP connection failed for "${config.serverName}"; check OAuth authorization and network connectivity`,
+        { cause: outcome.error },
+      );
+    return;
+  }
+  registerMcpResultPreview(ctx, client, config.serverName);
+  const supervisor = new BusabaseServerSupervisor(config);
   ctx.effect(() => async () => supervisor.dispose(), "busabase: managed server");
   ctx.inject(["webServer"], (webCtx) =>
     webCtx.webServer.register({

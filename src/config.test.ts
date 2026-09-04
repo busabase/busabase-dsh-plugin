@@ -8,6 +8,7 @@ describe("resolveConfig", () => {
       spaceId: null,
       mcpUrl: "http://localhost:15419/api/mcp",
       serverName: "busabase",
+      connection: { mode: "local" },
       server: {
         mode: "auto",
         command: process.platform === "win32" ? "npm.cmd" : "npm",
@@ -59,11 +60,44 @@ describe("resolveConfig", () => {
   });
 
   it("treats remote auto servers as external", () => {
-    expect(resolveConfig({ baseUrl: "https://busabase.example" }).server).toMatchObject({
+    const resolved = resolveConfig({ baseUrl: "https://busabase.example" });
+    expect(resolved.server).toMatchObject({
       mode: "auto",
       manageable: false,
       host: "busabase.example",
       port: 443,
+    });
+    expect(resolved.connection).toEqual({ mode: "remote" });
+  });
+
+  it("rejects a non-loopback http baseUrl", () => {
+    expect(() => resolveConfig({ baseUrl: "http://busabase.example" })).toThrow(/https/);
+  });
+
+  it("rejects credentials embedded in either URL", () => {
+    expect(() => resolveConfig({ baseUrl: "https://user:secret@busabase.example" })).toThrow(
+      /credentials/,
+    );
+    expect(() =>
+      resolveConfig({
+        baseUrl: "https://busabase.example",
+        mcpUrl: "https://token@busabase.example/api/mcp",
+      }),
+    ).toThrow(/credentials/);
+  });
+
+  it("requires a custom remote MCP URL to use https", () => {
+    expect(() =>
+      resolveConfig({
+        baseUrl: "https://busabase.example",
+        mcpUrl: "http://127.0.0.1:3000/api/mcp",
+      }),
+    ).toThrow(/mcpUrl.*https/);
+  });
+
+  it("keeps loopback baseUrl in local mode even when https", () => {
+    expect(resolveConfig({ baseUrl: "https://localhost:15419" }).connection).toEqual({
+      mode: "local",
     });
   });
 

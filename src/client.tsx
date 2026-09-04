@@ -74,6 +74,7 @@ const RAW_TOOL_NAMES = [
   "node_share",
   "nodes_create_change_request",
   "nodes_get",
+  "nodes_get_agent_prompts",
   "nodes_icon_confirm",
   "nodes_icon_create_upload_url",
   "nodes_list",
@@ -83,8 +84,10 @@ const RAW_TOOL_NAMES = [
   "nodes_read_lines",
   "nodes_search_by_name",
   "nodes_toggle_favorite",
+  "nodes_update_agent_prompts",
   "nodes_update_content",
   "nodes_update_metadata",
+  "nodes_update_settings",
   "nodes_update_visibility",
   "operations_revise",
   "record_change_request",
@@ -137,6 +140,7 @@ export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
       if (!target || target.hasAttribute("download")) return;
       const ref = busabaseRefFromLink(target.href, target.textContent, config.baseUrl);
       if (!ref) return;
+      if (config.connection.mode === "remote") return;
       event.preventDefault();
       if (ref.type === "embed") store.selectPreview(ref);
       else store.select(ref);
@@ -226,7 +230,8 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
           selected.metadata.previewUrl === preview.metadata.previewUrl)
       )
         return;
-      if (preview.type === "change-request") store.select(preview, sessionId ?? null);
+      if (preview.type === "change-request" && store.config.connection.mode === "local")
+        store.select(preview, sessionId ?? null);
       else store.selectPreview(preview, sessionId ?? null);
       ctx.layout.openDetails();
     }, [
@@ -235,6 +240,7 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
       store.getSnapshot,
       store.select,
       store.selectPreview,
+      store.config.connection.mode,
       ctx.layout.openDetails,
     ]);
     return (
@@ -255,7 +261,9 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
                 type="button"
                 className="bb-card-open"
                 onClick={() => {
-                  store.select(ref, sessionId ?? null);
+                  if (store.config.connection.mode === "local")
+                    store.select(ref, sessionId ?? null);
+                  else store.selectPreview(ref, sessionId ?? null);
                   ctx.layout.openDetails();
                 }}
               >
@@ -359,7 +367,7 @@ function createDetailsPanel(
                 </button>
                 {moreOpen ? (
                   <div className="bb-more-menu" role="menu">
-                    {ref.type !== "embed" ? (
+                    {ref.type !== "embed" && store.config.connection.mode === "local" ? (
                       <button
                         type="button"
                         role="menuitem"
@@ -384,17 +392,20 @@ function createDetailsPanel(
                         Reload preview
                       </button>
                     ) : null}
-                    {store.nodeUrl() ? (
-                      <a
-                        href={store.nodeUrl()!}
-                        role="menuitem"
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={() => setMoreOpen(false)}
-                      >
-                        Open in Busabase
-                      </a>
-                    ) : null}
+                    {(() => {
+                      const nodeUrl = store.nodeUrl();
+                      return nodeUrl ? (
+                        <a
+                          href={nodeUrl}
+                          role="menuitem"
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={() => setMoreOpen(false)}
+                        >
+                          Open in Busabase
+                        </a>
+                      ) : null;
+                    })()}
                     {ref.type === "change-request" ? (
                       <ChangeRequestActions
                         refValue={ref}
@@ -544,7 +555,7 @@ function BaseInspector({
   return (
     <div className="bb-inspector">
       <Summary refValue={refValue} data={asRecord(data)} />
-      {url && store.config.baseIframe.enabled ? (
+      {url && store.config.baseIframe.enabled && store.config.connection.mode === "local" ? (
         <>
           <div className="bb-node-actions">
             <button type="button" onClick={() => setFrameVersion((value) => value + 1)}>
@@ -561,7 +572,11 @@ function BaseInspector({
           />
         </>
       ) : (
-        <div className="bb-empty">Base embedding is disabled.</div>
+        <div className="bb-empty">
+          {store.config.connection.mode === "remote"
+            ? "Open this Base in Busabase Cloud."
+            : "Base embedding is disabled."}
+        </div>
       )}
       <JsonTree value={data} />
     </div>
@@ -582,7 +597,7 @@ function AirAppInspector({
   return (
     <div className="bb-inspector">
       <Summary refValue={refValue} data={asRecord(data)} />
-      {url && store.config.airAppIframe.enabled ? (
+      {url && store.config.airAppIframe.enabled && store.config.connection.mode === "local" ? (
         <>
           <div className="bb-node-actions">
             <button type="button" onClick={() => setFrameVersion((value) => value + 1)}>
@@ -599,7 +614,11 @@ function AirAppInspector({
           />
         </>
       ) : (
-        <div className="bb-empty">AirApp iframe is disabled.</div>
+        <div className="bb-empty">
+          {store.config.connection.mode === "remote"
+            ? "Open this AirApp in Busabase Cloud."
+            : "AirApp iframe is disabled."}
+        </div>
       )}
       <JsonTree value={data} />
     </div>
@@ -724,6 +743,7 @@ function ChangeRequestActions({
   beforeAction?: () => void;
   variant?: "all" | "primary" | "secondary";
 }) {
+  if (store.config.connection.mode === "remote") return null;
   const status = changeRequestStatus(data, refValue.status);
   const busy = store.getSnapshot().action;
   const confirmAction = async (
