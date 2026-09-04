@@ -226,9 +226,12 @@ export class BusabaseInspectorStore {
 
   embedUrl(ref = this.snapshot.selected): string | undefined {
     if (ref?.type !== "embed") return undefined;
-    return ref.metadata.autoPreview === true
-      ? resolveHttpUrl(ref.href)
-      : resolveResultUrl(this.config.baseUrl, ref.href);
+    return (
+      resolveResultUrl(this.config.baseUrl, ref.href) ??
+      (ref.metadata.autoPreview === true
+        ? resolveManagedLoopbackPreviewUrl(this.config.baseUrl, ref.href)
+        : undefined)
+    );
   }
 
   dispose(): void {
@@ -490,10 +493,6 @@ function resolveResultUrl(baseUrl: string, url: unknown): string | undefined {
   if (!["http:", "https:"].includes(resolved.protocol)) return undefined;
   if (!isSameBusabaseOrigin(configured, resolved)) return undefined;
   return resolved.toString();
-}
-
-function resolveHttpUrl(url: unknown): string | undefined {
-  return parsedHttpUrl(url)?.toString();
 }
 
 function resolveManagedLoopbackPreviewUrl(baseUrl: string, url: unknown): string | undefined {

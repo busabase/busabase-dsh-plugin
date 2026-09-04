@@ -78,11 +78,16 @@ describe("client plugin", () => {
         ({ config }) =>
           typeof config.key === "string" && String(config.key).startsWith("mcp__busabase__"),
       ),
-      // 83 -> 84 for `nodes_update_settings`. Every Busabase tool gets a keyed
+      // Every Busabase tool gets a keyed
       // card so its result renders as an entity the user can click into rather
       // than raw JSON; a tool left out of the list silently degrades to the
       // generic renderer, which is why this count is asserted at all.
-    ).toHaveLength(86);
+    ).toHaveLength(89);
+    for (const rawName of ["embed_links_create", "embed_links_list", "embed_links_revoke"]) {
+      expect(registrations.some(({ config }) => config.key === `mcp__busabase__${rawName}`)).toBe(
+        true,
+      );
+    }
   });
 
   it("automatically opens an augmented node_create embed in the right panel", async () => {

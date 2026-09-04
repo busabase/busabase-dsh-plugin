@@ -13,7 +13,7 @@ import {
   type BusabaseEntityRef,
   normalizeBusabaseResult,
 } from "./normalize.js";
-import { isAutoPreviewToolName } from "./preview-link.js";
+import { cloudAuthoritativePreviewRef, isAutoPreviewToolName } from "./preview-link.js";
 import styles from "./styles.css";
 
 export const name = "@busabase/dsh-plugin/client";
@@ -56,6 +56,9 @@ const RAW_TOOL_NAMES = [
   "change_requests_list_page",
   "comments_create",
   "comments_list",
+  "embed_links_create",
+  "embed_links_list",
+  "embed_links_revoke",
   "forms_create",
   "forms_get_by_node",
   "forms_list",
@@ -140,9 +143,11 @@ export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
       if (!target || target.hasAttribute("download")) return;
       const ref = busabaseRefFromLink(target.href, target.textContent, config.baseUrl);
       if (!ref) return;
-      if (config.connection.mode === "remote") return;
+      const isRemote = config.connection.mode === "remote";
+      const isAuthoritativePreview = ref.type === "embed" || ref.type === "change-request";
+      if (isRemote && !isAuthoritativePreview) return;
       event.preventDefault();
-      if (ref.type === "embed") store.selectPreview(ref);
+      if (ref.type === "embed" || (isRemote && isAuthoritativePreview)) store.selectPreview(ref);
       else store.select(ref);
       ctx.layout.openDetails();
     };
@@ -211,13 +216,18 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
   return function BusabaseToolCard({ block, toolName, sessionId }) {
     const refs = useMemo(() => normalizeBusabaseResult(extractToolPayload(block)), [block]);
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-    const preview = isAutoPreviewToolName(toolName, store.config.serverName)
-      ? refs.find(
-          (ref) =>
-            (ref.type === "embed" || ref.type === "change-request") &&
-            ref.metadata.autoPreview === true,
-        )
-      : undefined;
+    const isRemote = store.config.connection.mode === "remote";
+    const preview =
+      (isAutoPreviewToolName(toolName, store.config.serverName)
+        ? refs.find(
+            (ref) =>
+              (ref.type === "embed" || ref.type === "change-request") &&
+              ref.metadata.autoPreview === true,
+          )
+        : undefined) ??
+      (isRemote
+        ? cloudAuthoritativePreviewRef(toolName, extractToolPayload(block), store.config.serverName)
+        : undefined);
     useEffect(() => {
       if (!preview) return;
       const selected = store.getSnapshot().selected;
@@ -226,8 +236,9 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
         (preview.type === "change-request" &&
           selected?.type === "change-request" &&
           selected.id === preview.id &&
-          selected.metadata.autoPreview === true &&
-          selected.metadata.previewUrl === preview.metadata.previewUrl)
+          selected.metadata.previewUrl === preview.metadata.previewUrl &&
+          (selected.metadata.autoPreview === true ||
+            selected.metadata.openUrl === preview.metadata.openUrl))
       )
         return;
       if (preview.type === "change-request" && store.config.connection.mode === "local")
