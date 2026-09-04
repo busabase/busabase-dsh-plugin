@@ -73,6 +73,8 @@ interface OAuthCallbackServer {
   close(): Promise<void>;
 }
 
+type AuthorizationUrlPreflight = (authorizationUrl: URL) => Promise<"accepted" | "invalid-client">;
+
 /** Derive the model-facing name using DSH's `mcp__server__tool` contract. */
 export function publicToolName(serverName: string, rawName: string): string {
   const joined = `mcp__${serverName}__${rawName}`;
@@ -197,6 +199,17 @@ export class DshCredentialOAuthClientProvider implements OAuthClientProvider {
       const next = { ...payload };
       if (scope === "client") delete next.clientInformation;
       if (scope === "tokens") delete next.tokens;
+      return { kind: "grant", payload: next };
+    });
+  }
+
+  async invalidateClientRegistration(): Promise<void> {
+    await this.credentials.modifyRecord(this.key, async (current) => {
+      const payload = grantPayload(current, this.resourceUrl);
+      if (!payload) return current;
+      const next = { ...payload };
+      delete next.clientInformation;
+      delete next.tokens;
       return { kind: "grant", payload: next };
     });
   }
@@ -352,9 +365,46 @@ async function openAuthorization(
   }
 }
 
+async function preflightAuthorizationUrl(
+  authorizationUrl: URL,
+): Promise<"accepted" | "invalid-client"> {
+  let response: Response;
+  try {
+    response = await fetch(authorizationUrl, {
+      redirect: "manual",
+      headers: { accept: "application/json, text/html;q=0.9" },
+    });
+  } catch {
+    return "accepted";
+  }
+  if (response.status < 400) return "accepted";
+  const payload = (await response.json().catch(() => null)) as {
+    error?: unknown;
+    error_description?: unknown;
+  } | null;
+  if (
+    response.status === 400 &&
+    payload?.error === "invalid_request" &&
+    payload.error_description === "Invalid OAuth authorization request"
+  ) {
+    return "invalid-client";
+  }
+  throw new Error(`Busabase Cloud rejected the OAuth authorization request (${response.status})`);
+}
+
 export interface RemoteMcpHandle {
   ready: Promise<{ error?: unknown }>;
   dispose(): Promise<void>;
+  /**
+   * Mints a ChangeRequest embed link via the authenticated `embed_links_create`
+   * MCP tool, reusing the same live Client generation as the rest of the bridge
+   * (no second connection, no REST). Rejects if no generation is currently connected.
+   */
+  createChangeRequestEmbedLink(
+    changeRequestId: string,
+    targetSpaceId: string | undefined,
+    signal: AbortSignal,
+  ): Promise<McpResult>;
 }
 
 /** Connect a remote Busabase MCP resource and keep its DSH tool generation live. */
@@ -365,6 +415,7 @@ export function connectRemoteMcp(
   callbackServerFactory: (
     preferredPort: number,
   ) => Promise<OAuthCallbackServer> = createCallbackServer,
+  authorizationUrlPreflight: AuthorizationUrlPreflight = preflightAuthorizationUrl,
 ): RemoteMcpHandle {
   const label = `busabase-cloud-mcp(${config.serverName})`;
   const resourceUrl = new URL(config.mcpUrl).toString();
@@ -467,7 +518,7 @@ export function connectRemoteMcp(
 
       const createClientAndTransport = () => {
         const nextClient = new Client(
-          { name: "busabase-dsh-plugin", version: "0.1.1" },
+          { name: "busabase-dsh-plugin", version: "0.1.2" },
           { capabilities: {} },
         );
         const transport = new StreamableHTTPClientTransport(new URL(resourceUrl), {
@@ -479,36 +530,52 @@ export function connectRemoteMcp(
         return { client: nextClient, transport };
       };
 
-      let connection = createClientAndTransport();
-      client = connection.client;
-      currentClient = client;
-      let connectSettled = observeCloseDuringConnect(client);
-      try {
-        await client.connect(connection.transport);
-        connectSettled();
-      } catch (error) {
-        if (!(error instanceof UnauthorizedError)) throw error;
-        const authorizationUrl = provider.takePendingAuthorizationUrl();
-        if (!authorizationUrl)
-          throw new Error("Busabase Cloud did not provide an authorization URL");
-        const expectedState = authorizationUrl.searchParams.get("state");
-        if (!expectedState || !provider.matchesState(expectedState))
-          throw new Error("Busabase Cloud authorization URL did not preserve OAuth state");
-        const [code] = await Promise.all([
-          callback.waitForCode(expectedState, abort.signal),
-          openAuthorization(ctx, authorizationUrl),
-        ]);
-        await connection.transport.finishAuth(code);
-        suppressClose = true;
-        await client.close().catch(() => undefined);
-        if (disposed || abort.signal.aborted) return;
-        connection = createClientAndTransport();
+      for (let registrationAttempt = 0; ; registrationAttempt += 1) {
+        let connection = createClientAndTransport();
         client = connection.client;
         currentClient = client;
-        suppressClose = false;
-        connectSettled = observeCloseDuringConnect(client);
-        await client.connect(connection.transport);
-        connectSettled();
+        let connectSettled = observeCloseDuringConnect(client);
+        try {
+          await client.connect(connection.transport);
+          connectSettled();
+          break;
+        } catch (error) {
+          if (!(error instanceof UnauthorizedError)) throw error;
+          const authorizationUrl = provider.takePendingAuthorizationUrl();
+          if (!authorizationUrl)
+            throw new Error("Busabase Cloud did not provide an authorization URL");
+          const expectedState = authorizationUrl.searchParams.get("state");
+          if (!expectedState || !provider.matchesState(expectedState))
+            throw new Error("Busabase Cloud authorization URL did not preserve OAuth state");
+          const preflight = await authorizationUrlPreflight(authorizationUrl);
+          if (preflight === "invalid-client") {
+            if (registrationAttempt > 0)
+              throw new Error("Busabase Cloud rejected a newly registered OAuth client");
+            await provider.invalidateClientRegistration();
+            ctx.logger.info(`${label}: saved OAuth client is no longer valid; registering again`);
+            suppressClose = true;
+            await client.close().catch(() => undefined);
+            if (disposed || abort.signal.aborted) return;
+            suppressClose = false;
+            continue;
+          }
+          const [code] = await Promise.all([
+            callback.waitForCode(expectedState, abort.signal),
+            openAuthorization(ctx, authorizationUrl),
+          ]);
+          await connection.transport.finishAuth(code);
+          suppressClose = true;
+          await client.close().catch(() => undefined);
+          if (disposed || abort.signal.aborted) return;
+          connection = createClientAndTransport();
+          client = connection.client;
+          currentClient = client;
+          suppressClose = false;
+          connectSettled = observeCloseDuringConnect(client);
+          await client.connect(connection.transport);
+          connectSettled();
+          break;
+        }
       }
       if (!isCurrent(client)) return;
       await callback.close();
@@ -553,6 +620,29 @@ export function connectRemoteMcp(
         ? {}
         : { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) },
     ),
+    async createChangeRequestEmbedLink(
+      changeRequestId: string,
+      targetSpaceId: string | undefined,
+      signal: AbortSignal,
+    ): Promise<McpResult> {
+      const client = currentClient;
+      if (!client || disposed)
+        throw new Error(`${label}: no active Cloud MCP connection to mint an embed link`);
+      const result = await callRemoteTool(
+        client,
+        "embed_links_create",
+        {
+          type: "change-request",
+          typeId: changeRequestId,
+          framePolicy: { mode: "anywhere", allowedOrigins: [] },
+          ...(targetSpaceId ? { targetSpaceId } : {}),
+        },
+        signal,
+      );
+      if (!isCurrent(client))
+        throw new Error(`${label}: Cloud MCP connection changed while minting an embed link`);
+      return result;
+    },
     async dispose(): Promise<void> {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -647,29 +737,37 @@ function createRemoteToolDefinition(
       if (tool.execution?.taskSupport === "required")
         throw new Error(`Tool ${tool.name} requires unsupported task-based execution`);
       try {
-        const result = await client.callTool(
-          {
-            name: tool.name,
-            arguments:
-              typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {},
-          },
-          undefined,
-          { signal: execution.signal, timeout: TOOL_CALL_TIMEOUT_MS },
+        return await callRemoteTool(
+          client,
+          tool.name,
+          typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {},
+          execution.signal,
         );
-        const content = Array.isArray(result.content) ? (result.content as JsonValue[]) : [];
-        if (result.isError === true)
-          throw new Error(renderMcpContent(content) || `${tool.name} failed`);
-        return {
-          content,
-          ...(result.structuredContent !== undefined
-            ? { structuredContent: result.structuredContent as JsonValue }
-            : {}),
-        };
       } catch (error) {
         if (error instanceof UnauthorizedError) onUnauthorized();
         throw error;
       }
     },
+  };
+}
+
+async function callRemoteTool(
+  client: Client,
+  toolName: string,
+  args: Record<string, unknown>,
+  signal: AbortSignal,
+): Promise<McpResult> {
+  const result = await client.callTool({ name: toolName, arguments: args }, undefined, {
+    signal,
+    timeout: TOOL_CALL_TIMEOUT_MS,
+  });
+  const content = Array.isArray(result.content) ? (result.content as JsonValue[]) : [];
+  if (result.isError === true) throw new Error(renderMcpContent(content) || `${toolName} failed`);
+  return {
+    content,
+    ...(result.structuredContent !== undefined
+      ? { structuredContent: result.structuredContent as JsonValue }
+      : {}),
   };
 }
 

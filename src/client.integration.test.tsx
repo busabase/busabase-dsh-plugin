@@ -25,6 +25,7 @@ import { BusabaseInspectorStore } from "./client-store.js";
 const SESSION_ID = "s1" as SessionId;
 const TOOL_NAME = "mcp__busabase__bases_get";
 const CHANGE_REQUEST_TOOL_NAME = "mcp__busabase__change_requests_get";
+const EMBED_LINK_CREATE_TOOL_NAME = "mcp__busabase__embed_links_create";
 
 class ResizeObserverStub {
   observe(): void {}
@@ -375,6 +376,82 @@ it("keeps Cloud results link-only without Inspector REST actions or embeds", asy
   expect(panel.queryByRole("button", { name: "Refresh" })).toBeNull();
   expect(panel.queryByRole("button", { name: "Approve" })).toBeNull();
   expect(details?.querySelector("iframe")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  await busabase.dispose();
+  await runtime.dispose();
+});
+
+it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspector without REST reads or review actions", async () => {
+  const runtime = await SlotTestRuntime.create();
+  const layout = { openDetails: vi.fn(), closeDetails: vi.fn() };
+
+  runtime.provide("connection", {
+    api: { settings: {} },
+    isLoopback: false,
+    hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+  });
+  runtime.provide("remote", { $on: () => () => {} });
+  runtime.provide("settingsScope", { bind: () => stubSettingsScope().scope } as never);
+  runtime.provide("layout", layout);
+  const locale = new LocaleRuntime(runtime.ctx);
+  runtime.provide("locale", locale);
+  runtime.slots.installLocale(locale);
+
+  const result = changeRequestResult();
+  result.call = {
+    name: EMBED_LINK_CREATE_TOOL_NAME,
+    argsRaw: JSON.stringify({ type: "change-request", typeId: "crq_cloud" }),
+  };
+  result.content = [
+    {
+      type: "text",
+      text: JSON.stringify({
+        id: "emb_cloud",
+        type: "change-request",
+        typeId: "crq_cloud",
+        targetName: "Cloud proposal",
+        url: "https://busabase.com/embed/emb_cloud?token=secret",
+        iframeUrl: "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
+      }),
+    },
+  ];
+  await runtime.sessions.add({
+    id: SESSION_ID,
+    summary: { title: "Busabase Cloud embed", displayTitle: "Busabase Cloud embed" },
+    snapshot: { nodes: [result], chat: toolChatSnapshot([result]) },
+    session: {
+      loadOlder: vi.fn<ISession["loadOlder"]>(),
+      prompt: vi.fn<ISession["prompt"]>(async () => ({ ok: true, value: { accepted: true } })),
+    },
+  });
+  await runtime.root.declare(LAYOUT_CHILDREN, AppRoot);
+
+  const busabase = await runtime.mount({
+    name: "busabase-cloud-embed-test-client",
+    inject: [...injectBusabase],
+    apply: (ctx) => applyBusabase(ctx, { baseUrl: "https://busabase.com" }),
+  });
+  await runtime.mount({ inject: [...injectConversation], apply: applyConversation });
+  await runtime.mount({ inject: [...injectTool], apply: applyTool });
+
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockClear();
+  const view = runtime.renderRoot();
+
+  await waitFor(() => expect(layout.openDetails).toHaveBeenCalledTimes(1));
+  const details = view.container.querySelector(".bb-panel");
+  expect(details).not.toBeNull();
+  const panel = within(details as HTMLElement);
+  const frame = details?.querySelector("iframe");
+  expect(frame).not.toBeNull();
+  expect(frame?.getAttribute("src")).toBe(
+    "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
+  );
+  expect(panel.queryByRole("button", { name: "Refresh" })).toBeNull();
+  expect(panel.queryByRole("button", { name: "Approve" })).toBeNull();
+  expect(panel.queryByRole("button", { name: "Merge" })).toBeNull();
+  expect(panel.queryByRole("button", { name: "Close" })).toBeNull();
   expect(fetchMock).not.toHaveBeenCalled();
 
   await busabase.dispose();

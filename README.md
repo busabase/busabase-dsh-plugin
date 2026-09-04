@@ -123,7 +123,7 @@ Override the Bundle row by `id` and point `baseUrl` at an `https://` Busabase Cl
     serverName: busabase
 ```
 
-The plugin never manages or starts a remote server. When the remote plugin loads for the first time, it opens your OS browser for a standard OAuth sign-in; DeepSeek Harness stores the resulting token through its credential store, not in this configuration. The MCP connection still sends a fixed `changeRequest` permission ceiling. In this release the Inspector's review, merge, live refresh, and embedded Base/AirApp previews stay local-only: use the canonical Busabase Cloud link the Inspector shows to inspect, review, and merge remotely.
+The plugin never manages or starts a remote server. When the remote plugin loads for the first time, it opens your OS browser for a standard OAuth sign-in; DeepSeek Harness stores the resulting token through its credential store, not in this configuration. The MCP connection still sends a fixed `changeRequest` permission ceiling. In this release the Inspector's review, merge, live refresh, and embedded Base/AirApp previews stay local-only: use the canonical Busabase Cloud link the Inspector shows to inspect, review, and merge remotely. When an MCP call returns one pending ChangeRequest, the plugin best-effort mints its read-only preview through the same authenticated connection and opens it automatically in the Inspector. Clicking an authoritative Cloud embed link in a tool result also opens it there. The Inspector only trusts a link that matches the configured Cloud origin.
 
 ## Current boundaries
 

@@ -239,6 +239,21 @@ describe("DshCredentialOAuthClientProvider", () => {
     await provider.invalidateCredentials("all");
     expect(await provider.clientInformation()).toBeUndefined();
   });
+
+  it("clears a rejected client registration and its tokens while preserving the callback port", async () => {
+    const { store, provider } = createProvider();
+    await provider.saveClientInformation({ client_id: "client-123" } as never);
+    await provider.saveTokens({ access_token: "at", token_type: "bearer" } as never);
+
+    await provider.invalidateClientRegistration();
+
+    expect(await provider.clientInformation()).toBeUndefined();
+    expect(await provider.tokens()).toBeUndefined();
+    expect(store.records.values().next().value).toMatchObject({
+      kind: "grant",
+      payload: { resourceUrl, callbackPort: 51000 },
+    });
+  });
 });
 
 describe("connectRemoteMcp", () => {
@@ -320,6 +335,90 @@ describe("connectRemoteMcp", () => {
     await handle.dispose();
   });
 
+  it("mints a ChangeRequest embed link by reusing the current authenticated Client", async () => {
+    const { ctx } = fakeCtx();
+    const client = fakeClient();
+    client.listTools.mockResolvedValue({ tools: [] });
+    client.callTool.mockResolvedValue({
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: {
+        id: "emb_1",
+        typeId: "crq_1",
+        url: "https://busabase.example/embed/emb_1",
+        iframeUrl: "https://busabase.example/embed/emb_1?view=iframe",
+      },
+    });
+    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+
+    const handle = connectRemoteMcp(ctx, config, createFakeCredentialStore());
+    await expect(handle.ready).resolves.toEqual({});
+    const signal = new AbortController().signal;
+    await expect(handle.createChangeRequestEmbedLink("crq_1", "spc_1", signal)).resolves.toEqual({
+      content: [{ type: "text", text: "ok" }],
+      structuredContent: {
+        id: "emb_1",
+        typeId: "crq_1",
+        url: "https://busabase.example/embed/emb_1",
+        iframeUrl: "https://busabase.example/embed/emb_1?view=iframe",
+      },
+    });
+    expect(client.callTool).toHaveBeenCalledWith(
+      {
+        name: "embed_links_create",
+        arguments: {
+          type: "change-request",
+          typeId: "crq_1",
+          framePolicy: { mode: "anywhere", allowedOrigins: [] },
+          targetSpaceId: "spc_1",
+        },
+      },
+      undefined,
+      { signal, timeout: 60_000 },
+    );
+    await handle.dispose();
+  });
+
+  it("omits targetSpaceId from the embed link call when none is provided", async () => {
+    const { ctx } = fakeCtx();
+    const client = fakeClient();
+    client.listTools.mockResolvedValue({ tools: [] });
+    client.callTool.mockResolvedValue({ content: [], structuredContent: {} });
+    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+
+    const handle = connectRemoteMcp(ctx, config, createFakeCredentialStore());
+    await expect(handle.ready).resolves.toEqual({});
+    await handle.createChangeRequestEmbedLink("crq_2", undefined, new AbortController().signal);
+    expect(client.callTool).toHaveBeenCalledWith(
+      {
+        name: "embed_links_create",
+        arguments: {
+          type: "change-request",
+          typeId: "crq_2",
+          framePolicy: { mode: "anywhere", allowedOrigins: [] },
+        },
+      },
+      undefined,
+      expect.objectContaining({ timeout: 60_000 }),
+    );
+    await handle.dispose();
+  });
+
+  it("rejects minting an embed link once the handle has been disposed", async () => {
+    const { ctx } = fakeCtx();
+    const client = fakeClient();
+    client.listTools.mockResolvedValue({ tools: [] });
+    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+
+    const handle = connectRemoteMcp(ctx, config, createFakeCredentialStore());
+    await expect(handle.ready).resolves.toEqual({});
+    await handle.dispose();
+
+    await expect(
+      handle.createChangeRequestEmbedLink("crq_3", undefined, new AbortController().signal),
+    ).rejects.toThrow(/no active Cloud MCP connection/);
+    expect(client.callTool).not.toHaveBeenCalled();
+  });
+
   it("validates state, finishes auth, then reconnects with a fresh client and transport", async () => {
     const { ctx } = fakeCtx();
     const first = fakeClient();
@@ -350,6 +449,100 @@ describe("connectRemoteMcp", () => {
     expect(transportInstances[0]?.finishAuth).toHaveBeenCalledWith("auth-code");
     expect(first.close).toHaveBeenCalledOnce();
     expect(second.connect).toHaveBeenCalledOnce();
+    await handle.dispose();
+  });
+
+  it("re-registers a persisted OAuth client when the authorization endpoint rejects it", async () => {
+    const { ctx } = fakeCtx();
+    const resourceUrl = new URL(config.mcpUrl).toString();
+    const key = busabaseOAuthCredentialKey(resourceUrl, config.serverName);
+    const callbackPort = 51_000;
+    const callbackUrl = `http://127.0.0.1:${String(callbackPort)}/callback`;
+    const store = createFakeCredentialStore();
+    store.records.set(key, {
+      kind: "grant",
+      payload: {
+        resourceUrl,
+        callbackPort,
+        clientInformation: { client_id: "forgotten-client", redirect_uris: [callbackUrl] },
+        tokens: { access_token: "stale-at", token_type: "bearer" },
+      },
+    } as never);
+    let expectedState = "";
+    const staleClient = fakeClient();
+    staleClient.connect.mockImplementationOnce(async () => {
+      const provider = transportInstances[0]?.authProvider;
+      expectedState = provider?.state() ?? "";
+      provider?.redirectToAuthorization(
+        new URL(`https://busabase.example/authorize?state=${encodeURIComponent(expectedState)}`),
+      );
+      throw new UnauthorizedError("auth required");
+    });
+    const registeredClient = fakeClient();
+    registeredClient.connect.mockImplementationOnce(async () => {
+      const provider = transportInstances[1]?.authProvider;
+      await expect(provider?.clientInformation()).resolves.toBeUndefined();
+      await expect(provider?.tokens()).resolves.toBeUndefined();
+      await provider?.saveClientInformation({
+        client_id: "fresh-client",
+        redirect_uris: [callbackUrl],
+      });
+      expectedState = provider?.state() ?? "";
+      provider?.redirectToAuthorization(
+        new URL(`https://busabase.example/authorize?state=${encodeURIComponent(expectedState)}`),
+      );
+      throw new UnauthorizedError("auth required");
+    });
+    const connectedClient = fakeClient();
+    (Client as unknown as ReturnType<typeof vi.fn>)
+      .mockImplementationOnce(() => staleClient)
+      .mockImplementationOnce(() => registeredClient)
+      .mockImplementationOnce(() => connectedClient);
+    let resolveCallback!: (code: string) => void;
+    const callbackCode = new Promise<string>((resolve) => {
+      resolveCallback = resolve;
+    });
+    openMock.mockImplementationOnce(async () => {
+      resolveCallback("auth-code");
+    });
+    const preflight = vi
+      .fn<() => Promise<"accepted" | "invalid-client">>()
+      .mockResolvedValueOnce("invalid-client")
+      .mockResolvedValueOnce("accepted");
+
+    const handle = connectRemoteMcp(
+      ctx,
+      config,
+      store,
+      async (preferredPort) => {
+        expect(preferredPort).toBe(callbackPort);
+        return {
+          port: callbackPort,
+          redirectUrl: callbackUrl,
+          waitForCode: vi.fn(async (state) => {
+            expect(state).toBe(expectedState);
+            return callbackCode;
+          }),
+          close: vi.fn().mockResolvedValue(undefined),
+        };
+      },
+      preflight,
+    );
+    await expect(handle.ready).resolves.toEqual({});
+
+    expect(preflight).toHaveBeenCalledTimes(2);
+    expect(staleClient.close).toHaveBeenCalledOnce();
+    expect(transportInstances[1]?.finishAuth).toHaveBeenCalledWith("auth-code");
+    expect(connectedClient.connect).toHaveBeenCalledOnce();
+    expect(store.records.get(key)).toMatchObject({
+      payload: {
+        callbackPort,
+        clientInformation: { client_id: "fresh-client" },
+      },
+    });
+    expect(store.records.get(key)).not.toMatchObject({
+      payload: { tokens: { access_token: "stale-at" } },
+    });
     await handle.dispose();
   });
 

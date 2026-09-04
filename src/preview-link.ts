@@ -118,6 +118,29 @@ export function autoPreviewRef(value: unknown): BusabaseEntityRef | null {
   return ref ?? null;
 }
 
+/**
+ * Cloud has no local trusted-Host step to stamp `autoPreview`. An explicit
+ * `embed_links_create` call is the authenticated server step that mints the
+ * capability, so its result is the auto-open signal. The Client store still
+ * checks the returned URL against the configured Busabase origin before render.
+ */
+export function cloudAuthoritativePreviewRef(
+  toolName: string,
+  value: unknown,
+  serverName: string,
+): BusabaseEntityRef | null {
+  if (toolName !== `mcp__${serverName}__embed_links_create`) return null;
+  const refs = normalizeBusabaseResult(value);
+  if (refs.length !== 1) return null;
+  const [ref] = refs;
+  if (
+    (ref.type !== "embed" && ref.type !== "change-request") ||
+    typeof ref.metadata.openUrl !== "string"
+  )
+    return null;
+  return ref;
+}
+
 function isCanonicalNodeRef(ref: BusabaseEntityRef): boolean {
   return (BUILT_IN_NODE_TYPES as readonly string[]).includes(ref.type);
 }

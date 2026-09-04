@@ -123,7 +123,7 @@ MCP 连接权限固定在 `changeRequest`。Busabase 会拒绝 Agent 发起的�
     serverName: busabase
 ```
 
-插件不会管理或启动远程服务器。首次加载远程插件时会打开系统浏览器完成标准 OAuth 登录；DeepSeek Harness 通过其凭据存储保存生成的令牌，而不是写入本插件的配置。MCP 连接仍会固定发送 `changeRequest` 权限上限。当前版本中，Inspector 的审阅、合并、实时刷新以及 Base/AirApp 内嵌预览仍仅支持本地模式：请使用 Inspector 展示的 Busabase Cloud 正式链接，在云端查看、审阅与合并。
+插件不会管理或启动远程服务器。首次加载远程插件时会打开系统浏览器完成标准 OAuth 登录；DeepSeek Harness 通过其凭据存储保存生成的令牌，而不是写入本插件的配置。MCP 连接仍会固定发送 `changeRequest` 权限上限。当前版本中，Inspector 的审阅、合并、实时刷新以及 Base/AirApp 内嵌预览仍仅支持本地模式：请使用 Inspector 展示的 Busabase Cloud 正式链接，在云端查看、审阅与合并。当 MCP 调用返回一个待处理 ChangeRequest 时，插件会通过同一条已鉴权连接尽力生成其只读预览，并自动在 Inspector 中打开。在工具结果中点击正式 Cloud embed 链接也会在 Inspector 中打开。Inspector 只信任与已配置 Cloud 源匹配的链接。
 
 ## 当前边界
 

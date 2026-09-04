@@ -10,7 +10,11 @@ import type {} from "@deepseek-ai/dsh-system-prompt";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { Busabase } from "busabase-sdk";
 import { type BusabasePluginConfig, Config, resolveConfig } from "./config.js";
-import { registerMcpResultPreview } from "./mcp-result-preview.js";
+import {
+  registerMcpResultPreview,
+  registerRemoteChangeRequestPreview,
+} from "./mcp-result-preview.js";
+import { unwrapMcpResult } from "./normalize.js";
 import { connectRemoteMcp, type RemoteMcpHandle } from "./oauth-mcp-client.js";
 import { BUSABASE_SYSTEM_PROMPT } from "./prompt.js";
 import { createBusabaseServerRouter } from "./server-router.js";
@@ -62,6 +66,19 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
       handle = connectRemoteMcp(ctx, config, credentials);
       return async () => handle.dispose();
     }, "busabase: cloud mcp connection");
+    registerRemoteChangeRequestPreview(
+      ctx,
+      config.serverName,
+      async (changeRequestId, targetSpaceId, signal) => {
+        const result = await handle.createChangeRequestEmbedLink(
+          changeRequestId,
+          targetSpaceId,
+          signal,
+        );
+        const link = unwrapMcpResult(result) as Record<string, unknown>;
+        return { ...link, type: "change-request", typeId: changeRequestId, autoPreview: true };
+      },
+    );
     const outcome = await handle.ready;
     if (outcome.error)
       throw new Error(
