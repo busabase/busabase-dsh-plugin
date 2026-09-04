@@ -43,6 +43,9 @@ export interface ResolvedBusabasePluginConfig {
   spaceId: string | null;
   mcpUrl: string;
   serverName: string;
+  connection: {
+    mode: "local" | "remote";
+  };
   server: {
     mode: "auto" | "managed" | "external";
     command: string;
@@ -131,6 +134,10 @@ export function resolveConfig(config: BusabasePluginConfig = {}): ResolvedBusaba
   const manageable = isLoopbackHostname(serverUrl.hostname);
   if (serverMode === "managed" && !manageable)
     throw new Error("server.mode managed requires a loopback baseUrl");
+  const connectionMode: "local" | "remote" = manageable ? "local" : "remote";
+  if (connectionMode === "remote" && serverUrl.protocol !== "https:")
+    throw new Error("a remote (non-loopback) baseUrl must use https");
+  const mcpUrl = normalizeMcpUrl(config.mcpUrl ?? `${baseUrl}/api/mcp`, connectionMode);
   const urlHostname = serverUrl.hostname.replace(/^\[(.*)\]$/, "$1");
   const serverHost = urlHostname === "localhost" ? "127.0.0.1" : urlHostname;
   const serverPort = Number(serverUrl.port || (serverUrl.protocol === "https:" ? "443" : "80"));
@@ -151,8 +158,9 @@ export function resolveConfig(config: BusabasePluginConfig = {}): ResolvedBusaba
   return {
     baseUrl,
     spaceId: config.spaceId?.trim() || null,
-    mcpUrl: config.mcpUrl ?? `${baseUrl}/api/mcp`,
+    mcpUrl,
     serverName,
+    connection: { mode: connectionMode },
     server: {
       mode: serverMode,
       command: config.server?.command || defaultNpmCommand(),
@@ -200,6 +208,16 @@ function normalizeBaseUrl(value: string): string {
   const url = new URL(value);
   if (!["http:", "https:"].includes(url.protocol))
     throw new Error("baseUrl must use http or https");
+  if (url.username || url.password) throw new Error("baseUrl must not contain credentials");
   url.pathname = url.pathname.replace(/\/+$/, "");
   return url.toString().replace(/\/$/, "");
+}
+
+function normalizeMcpUrl(value: string, mode: "local" | "remote"): string {
+  const url = new URL(value);
+  if (!["http:", "https:"].includes(url.protocol)) throw new Error("mcpUrl must use http or https");
+  if (url.username || url.password) throw new Error("mcpUrl must not contain credentials");
+  if (mode === "remote" && url.protocol !== "https:")
+    throw new Error("a remote Busabase mcpUrl must use https");
+  return url.toString();
 }

@@ -24,6 +24,9 @@ type Listener = () => void;
 type EnsureServer = () => Promise<void>;
 type CreateNodePreview = (nodeId: string) => Promise<unknown>;
 
+const REMOTE_UNSUPPORTED_MESSAGE =
+  "Inspector review, merge, and live data are local-only in this release; open the canonical Busabase Cloud link instead.";
+
 export class BusabaseInspectorStore {
   readonly client: Busabase;
   private snapshot: InspectorSnapshot = {
@@ -69,7 +72,12 @@ export class BusabaseInspectorStore {
       error: null,
     });
     void this.refresh();
-    if (this.config.liveRefresh.enabled && !this.liveAbort) this.startLiveRefresh();
+    if (
+      this.config.connection.mode === "local" &&
+      this.config.liveRefresh.enabled &&
+      !this.liveAbort
+    )
+      this.startLiveRefresh();
   }
 
   selectPreview(ref: BusabaseEntityRef, sessionId: string | null = null): void {
@@ -96,6 +104,10 @@ export class BusabaseInspectorStore {
     this.readAbort = abort;
     const version = ++this.requestVersion;
     this.set({ phase: "loading", error: null });
+    if (this.config.connection.mode === "remote") {
+      this.set({ phase: "error", error: REMOTE_UNSUPPORTED_MESSAGE });
+      return;
+    }
     try {
       await this.ensureServer();
       const data = await readEntity(this.client, selected, abort.signal);
@@ -232,6 +244,10 @@ export class BusabaseInspectorStore {
     readCanonical = false,
   ): Promise<boolean> {
     if (this.snapshot.action) return false;
+    if (this.config.connection.mode === "remote") {
+      this.set({ error: REMOTE_UNSUPPORTED_MESSAGE, phase: "error" });
+      throw new Error(REMOTE_UNSUPPORTED_MESSAGE);
+    }
     this.set({ action, error: null });
     try {
       await this.ensureServer();
@@ -273,6 +289,7 @@ export class BusabaseInspectorStore {
   }
 
   private async consumeLive(signal: AbortSignal): Promise<void> {
+    if (this.config.connection.mode === "remote") return;
     let delay = this.config.liveRefresh.reconnectInitialDelayMs;
     while (!signal.aborted) {
       try {

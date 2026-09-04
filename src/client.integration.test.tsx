@@ -312,3 +312,71 @@ it("renders quick ChangeRequest review actions through the real ToolView slot", 
   ).toBe(false);
   await runtime.dispose();
 });
+
+it("keeps Cloud results link-only without Inspector REST actions or embeds", async () => {
+  const runtime = await SlotTestRuntime.create();
+  const layout = { openDetails: vi.fn(), closeDetails: vi.fn() };
+
+  runtime.provide("connection", {
+    api: { settings: {} },
+    isLoopback: false,
+    hostDescription: { getSnapshot: () => undefined, subscribe: () => () => {} },
+  });
+  runtime.provide("remote", { $on: () => () => {} });
+  runtime.provide("settingsScope", { bind: () => stubSettingsScope().scope } as never);
+  runtime.provide("layout", layout);
+  const locale = new LocaleRuntime(runtime.ctx);
+  runtime.provide("locale", locale);
+  runtime.slots.installLocale(locale);
+
+  const result = baseResult();
+  result.content = [
+    {
+      type: "text",
+      text: JSON.stringify({
+        id: "bse_crm",
+        baseId: "bse_crm",
+        nodeId: "nod_crm",
+        type: "base",
+        name: "Cloud CRM",
+        url: "https://busabase.com/dashboard/org_1/nodes/nod_crm",
+      }),
+    },
+  ];
+  await runtime.sessions.add({
+    id: SESSION_ID,
+    summary: { title: "Busabase Cloud", displayTitle: "Busabase Cloud" },
+    snapshot: { nodes: [result], chat: toolChatSnapshot([result]) },
+    session: {
+      loadOlder: vi.fn<ISession["loadOlder"]>(),
+      prompt: vi.fn<ISession["prompt"]>(async () => ({ ok: true, value: { accepted: true } })),
+    },
+  });
+  await runtime.root.declare(LAYOUT_CHILDREN, AppRoot);
+
+  const busabase = await runtime.mount({
+    name: "busabase-cloud-test-client",
+    inject: [...injectBusabase],
+    apply: (ctx) => applyBusabase(ctx, { baseUrl: "https://busabase.com" }),
+  });
+  await runtime.mount({ inject: [...injectConversation], apply: applyConversation });
+  await runtime.mount({ inject: [...injectTool], apply: applyTool });
+
+  const fetchMock = vi.mocked(fetch);
+  fetchMock.mockClear();
+  const view = runtime.renderRoot();
+  fireEvent.click(view.getByRole("button", { name: /Cloud CRM/i }));
+  const details = view.container.querySelector(".bb-panel");
+  expect(details).not.toBeNull();
+  const panel = within(details as HTMLElement);
+  expect(panel.getByRole("link", { name: "Open in Busabase" }).getAttribute("href")).toBe(
+    "https://busabase.com/dashboard/org_1/nodes/nod_crm",
+  );
+  expect(panel.queryByRole("button", { name: "Refresh" })).toBeNull();
+  expect(panel.queryByRole("button", { name: "Approve" })).toBeNull();
+  expect(details?.querySelector("iframe")).toBeNull();
+  expect(fetchMock).not.toHaveBeenCalled();
+
+  await busabase.dispose();
+  await runtime.dispose();
+});

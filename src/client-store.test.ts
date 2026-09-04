@@ -48,6 +48,10 @@ function createStore(
   );
 }
 
+function createRemoteStore(client = fakeClient()): BusabaseInspectorStore {
+  return new BusabaseInspectorStore(resolveConfig({ baseUrl: "https://busabase.example" }), client);
+}
+
 describe("live event filtering", () => {
   it("refetches only selected entity dependencies", () => {
     const ref = {
@@ -756,5 +760,53 @@ describe("request lifecycle", () => {
     expect(refresh).toHaveBeenCalledTimes(2);
     store.dispose();
     vi.useRealTimers();
+  });
+});
+
+describe("remote (Cloud) mode never falls back to unauthenticated browser requests", () => {
+  it("does not fetch or read when selecting an entity", async () => {
+    const client = fakeClient();
+    const store = createRemoteStore(client);
+    store.select(changeRequest());
+    await vi.waitFor(() =>
+      expect(store.getSnapshot()).toMatchObject({ phase: "error", error: expect.any(String) }),
+    );
+    expect(client.changeRequests.get).not.toHaveBeenCalled();
+    expect(client.nodes.get).not.toHaveBeenCalled();
+    expect(client.records.get).not.toHaveBeenCalled();
+  });
+
+  it("rejects review, merge, and close without calling the SDK client", async () => {
+    const client = fakeClient();
+    const store = createRemoteStore(client);
+    store.selectPreview(changeRequest());
+    await expect(store.review("approved")).rejects.toThrow(/local-only/);
+    await expect(store.merge()).rejects.toThrow(/local-only/);
+    await expect(store.close("reason")).rejects.toThrow(/local-only/);
+    expect(client.changeRequests.review).not.toHaveBeenCalled();
+    expect(client.changeRequests.merge).not.toHaveBeenCalled();
+    expect(client.changeRequests.close).not.toHaveBeenCalled();
+  });
+
+  it("never starts a live subscription even when liveRefresh is enabled", () => {
+    const client = fakeClient();
+    const store = new BusabaseInspectorStore(
+      resolveConfig({
+        baseUrl: "https://busabase.example",
+        liveRefresh: { enabled: true },
+      }),
+      client,
+    );
+    store.select(changeRequest());
+    expect(store.getSnapshot().live).toBe("stopped");
+    expect(client.client.live.subscribe).not.toHaveBeenCalled();
+    store.dispose();
+  });
+
+  it("still resolves canonical Cloud links without any network call", () => {
+    const store = createRemoteStore();
+    const ref = changeRequest();
+    ref.metadata = { openUrl: "https://busabase.example/dashboard/org_1/inbox/cr_1" };
+    expect(store.nodeUrl(ref)).toBe("https://busabase.example/dashboard/org_1/inbox/cr_1");
   });
 });

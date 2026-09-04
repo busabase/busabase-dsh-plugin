@@ -1,6 +1,6 @@
 {
   "name": "@busabase/dsh-plugin",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Busabase MCP, cards, and live inspector for DeepSeek Harness",
   "license": "MIT",
   "homepage": "https://github.com/busabase/busabase-dsh-plugin#readme",
@@ -35,7 +35,10 @@
     "scripts/link-skills.mjs",
     "cordis.patch.yml",
     "LICENSE",
-    "README.md"
+    "README.md",
+    "README.zh.md",
+    "DEVELOPMENT.md",
+    "DEVELOPMENT.zh.md"
   ],
   "publishConfig": {
     "access": "public"
@@ -78,10 +81,13 @@
     "@deepseek-ai/dsh-mcp-client": "0.1.1-rc.2",
     "@deepseek-ai/dsh-skill-filesystem": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
-    "busabase-sdk": "0.30.1"
+    "@modelcontextprotocol/sdk": "1.26.0",
+    "busabase-sdk": "0.30.1",
+    "open": "11.0.1"
   },
   "peerDependencies": {
     "@deepseek-ai/cordis": "^4.0.1",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
     "@deepseek-ai/dsh-host-webserver": "0.1.1-rc.2",
     "@deepseek-ai/dsh-skill": "0.1.1-rc.2",
     "@deepseek-ai/dsh-client-runtime": "0.1.1-rc.2",
@@ -98,6 +104,7 @@
     "@deepseek-ai/dsh": "0.1.1-rc.2",
     "@deepseek-ai/dsh-app-boot": "0.1.1-rc.2",
     "@playwright/test": "1.58.2",
+    "@deepseek-ai/dsh-credentials": "0.1.1-rc.2",
     "@deepseek-ai/dsh-host-webserver": "0.1.1-rc.2",
     "@deepseek-ai/dsh-skill": "0.1.1-rc.2",
     "@deepseek-ai/dsh-client-locale": "0.1.1-rc.2",
@@ -111,7 +118,6 @@
     "@deepseek-ai/dsh-client-ui-tool": "0.1.1-rc.2",
     "@deepseek-ai/dsh-system-prompt": "0.1.1-rc.2",
     "@deepseek-ai/dsh-tools": "0.1.1-rc.2",
-    "@modelcontextprotocol/sdk": "1.26.0",
     "@testing-library/react": "^16.3.0",
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.1",

@@ -9,6 +9,10 @@ const { stdout } = await exec("npm", ["pack", "--dry-run", "--json"], {
 const [packResult] = JSON.parse(stdout);
 const files = new Set(packResult.files.map(({ path }) => path));
 const requiredFiles = [
+  "README.md",
+  "README.zh.md",
+  "DEVELOPMENT.md",
+  "DEVELOPMENT.zh.md",
   "lib/skills/busabase/SKILL.md",
   "lib/skills/busabase-app-creator/SKILL.md",
   "lib/skills/busabase-app-creator/scripts/airapp-kit.mjs",
