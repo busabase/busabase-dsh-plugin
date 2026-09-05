@@ -12,6 +12,12 @@ import {
 } from "./preview-link.js";
 
 describe("preview links", () => {
+  it("rejects a valid embed response belonging to a different target", async () => {
+    const create = vi.fn().mockResolvedValue({ type: "change-request", typeId: "cr_other" });
+    await expect(
+      createChangeRequestPreviewLink({ embedLinks: { create } }, "cr_requested"),
+    ).rejects.toThrow("different target");
+  });
   it("resolves a canonical node only from the node_create MCP result", () => {
     const result = {
       content: [{ type: "text", text: JSON.stringify({ id: "nod_1", type: "airapp" }) }],

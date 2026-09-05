@@ -81,6 +81,15 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
         `busabase: initial Cloud MCP connection failed for "${config.serverName}"; check OAuth authorization and network connectivity`,
         { cause: outcome.error },
       );
+    ctx.inject(["webServer"], (webCtx) =>
+      webCtx.webServer.register({
+        kind: "prefix",
+        path: "/busabase-api",
+        handler: createBusabaseServerRouter({
+          previewClient: (spaceId) => handle.previewClient(spaceId),
+        }),
+      }),
+    );
     return;
   }
   registerMcpResultPreview(ctx, client, config.serverName);
@@ -90,7 +99,11 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
     webCtx.webServer.register({
       kind: "prefix",
       path: "/busabase-api",
-      handler: createBusabaseServerRouter(supervisor, config.baseUrl, client),
+      handler: createBusabaseServerRouter({
+        supervisor,
+        baseUrl: config.baseUrl,
+        previewClient: () => client,
+      }),
     }),
   );
   ctx.effect(

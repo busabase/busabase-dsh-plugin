@@ -284,7 +284,7 @@ API 回读其 active 元数据，最后确认被管理的 Busabase 子进程随 
   模型 id，以及包含 `busabase-app-creator`、`busabase` 两个技能目录的本地路径；可选
   `BUSABASE_DSH_E2E_PROVIDER_ID` 自定义 Cordis provider id，默认 `busabase-dsh-e2e`）；技能目录必须
   显式指定，不会隐式回退到无关的本地 `.agents/skills` 目录；
-- Node.js 必须 `>=24.18.0`（与本插件及 `busabase-sdk@0.30.1` 的最低版本一致；测试会在启动前用
+- Node.js 必须 `>=24.18.0`（与本插件及 `busabase-sdk@0.41.0` 的最低版本一致；测试会在启动前用
   `checkNodeEngine` 显式校验并打印原因，而不是运行到中途才失败）。
 
 ```bash

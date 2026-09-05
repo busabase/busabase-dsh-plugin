@@ -219,7 +219,24 @@ export function extractToolPayload(block: ToolCallOwnerProps["block"]): unknown 
 
 function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<ToolCallViewProps> {
   return function BusabaseToolCard({ block, toolName, sessionId }) {
-    const refs = useMemo(() => normalizeBusabaseResult(extractToolPayload(block)), [block]);
+    const refs = useMemo(() => {
+      let targetSpaceId: unknown;
+      try {
+        const argsRaw = "argsRaw" in block ? block.argsRaw : block.call?.argsRaw;
+        targetSpaceId = asRecord(JSON.parse(argsRaw ?? "{}")).targetSpaceId;
+      } catch {
+        /* Incomplete tool arguments may not be JSON yet. */
+      }
+      return normalizeBusabaseResult(extractToolPayload(block)).map(
+        (ref): BusabaseEntityRef => ({
+          ...ref,
+          metadata: {
+            ...ref.metadata,
+            ...(typeof targetSpaceId === "string" ? { targetSpaceId } : {}),
+          },
+        }),
+      );
+    }, [block]);
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const preview = isAutoPreviewToolName(toolName, store.config.serverName)
       ? refs.find(
@@ -648,6 +665,53 @@ function ChangeRequestInspector({
 }) {
   const value = asRecord(data);
   const previewUrl = store.changeRequestEmbedUrl(refValue);
+  const [previewError, setPreviewError] = useState<string | null>(null);
+  const [loadingPreview, setLoadingPreview] = useState(false);
+  useEffect(() => {
+    const changeRequestId = refValue.changeRequestId ?? refValue.id;
+    if (
+      !changeRequestId ||
+      store.config.connection.mode !== "remote" ||
+      previewUrl ||
+      !store.config.changeRequestIframe.enabled
+    )
+      return;
+    const abort = new AbortController();
+    setLoadingPreview(true);
+    setPreviewError(null);
+    const load = async () => {
+      try {
+        const url = new URL(
+          `/busabase-api/previews/change-requests/${encodeURIComponent(changeRequestId)}`,
+          window.location.origin,
+        );
+        const spaceId =
+          typeof refValue.metadata.targetSpaceId === "string"
+            ? refValue.metadata.targetSpaceId
+            : store.config.spaceId;
+        if (spaceId) url.searchParams.set("spaceId", spaceId);
+        const response = await fetch(url, { method: "POST", signal: abort.signal });
+        if (!response.ok) throw new Error("Could not load the Cloud ChangeRequest preview.");
+        const preview = normalizeBusabaseResult(await response.json()).find(
+          (ref) => ref.type === "change-request",
+        );
+        if (!preview || !store.changeRequestEmbedUrl(preview))
+          throw new Error("Cloud returned no valid ChangeRequest preview.");
+        if (!abort.signal.aborted)
+          store.selectPreview(
+            { ...refValue, metadata: { ...refValue.metadata, ...preview.metadata } },
+            store.getSnapshot().selectedSessionId,
+          );
+      } catch (error) {
+        if (!abort.signal.aborted)
+          setPreviewError(error instanceof Error ? error.message : "Could not load preview.");
+      } finally {
+        if (!abort.signal.aborted) setLoadingPreview(false);
+      }
+    };
+    void load();
+    return () => abort.abort();
+  }, [refValue, previewUrl, store]);
   return (
     <div className="bb-inspector bb-change-request-inspector">
       {previewUrl && store.config.changeRequestIframe.enabled ? (
@@ -663,7 +727,10 @@ function ChangeRequestInspector({
         </section>
       ) : (
         <div className="bb-empty">
-          Rich Change Request preview is unavailable for this Busabase instance.
+          {loadingPreview
+            ? "Loading ChangeRequest preview..."
+            : (previewError ??
+              "Rich Change Request preview is unavailable for this Busabase instance.")}
         </div>
       )}
       {value.canonical !== undefined ? (

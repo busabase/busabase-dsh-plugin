@@ -6,6 +6,7 @@ import { apply, inject } from "./index.js";
 vi.mock("./oauth-mcp-client.js", () => ({
   connectRemoteMcp: vi.fn(() => ({
     ready: Promise.resolve({}),
+    previewClient: vi.fn(),
     dispose: vi.fn().mockResolvedValue(undefined),
   })),
 }));
@@ -122,6 +123,7 @@ describe("host plugin wiring", () => {
         resolveReady = resolve;
       }),
       dispose,
+      previewClient: vi.fn(),
     });
 
     let settled = false;
@@ -150,6 +152,7 @@ describe("host plugin wiring", () => {
     resolveReady({});
     await expect(applyPromise).resolves.toBeUndefined();
     expect(settled).toBe(true);
+    expect(routes).toEqual([expect.objectContaining({ path: "/busabase-api" })]);
   });
 
   it("rejects with the original cause when the initial Cloud connection fails", async () => {
@@ -159,6 +162,7 @@ describe("host plugin wiring", () => {
     const connectError = new Error("oauth authorization denied");
     vi.mocked(connectRemoteMcp).mockReturnValueOnce({
       ready: Promise.resolve({ error: connectError }),
+      previewClient: vi.fn(),
       dispose: vi.fn().mockResolvedValue(undefined),
     });
 

@@ -289,7 +289,7 @@ cleans up the temp directory and any leftover processes in `afterAll`.
   `busabase` skill directories; an optional `BUSABASE_DSH_E2E_PROVIDER_ID` customizes the Cordis provider id,
   defaulting to `busabase-dsh-e2e`); the skills directory must be specified explicitly and does not implicitly
   fall back to an unrelated local `.agents/skills` directory;
-- Node.js must be `>=24.18.0` (matching the minimum version for this plugin and `busabase-sdk@0.30.1`; the test
+- Node.js must be `>=24.18.0` (matching the minimum version for this plugin and `busabase-sdk@0.41.0`; the test
   explicitly validates this with `checkNodeEngine` before startup and prints the reason, instead of failing partway through).
 
 ```bash
