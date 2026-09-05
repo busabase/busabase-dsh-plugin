@@ -7,6 +7,7 @@ import {
   credentialKey,
 } from "@deepseek-ai/dsh-credentials";
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import { createChangeRequestPreviewLink } from "./preview-link.js";
 
 const openMock = vi.fn().mockResolvedValue(undefined);
 vi.mock("open", () => ({ default: openMock }));
@@ -333,6 +334,189 @@ describe("connectRemoteMcp", () => {
       },
     });
     await handle.dispose();
+  });
+
+  it.each(["structured", "content", "structured-only"])(
+    "adds a scoped remote preview for %s ChangeRequest results",
+    async (format) => {
+      const { ctx, definitions } = fakeCtx();
+      const client = fakeClient();
+      const cr = { id: "crq_preview", type: "change_request", status: "in_review" };
+      const link = {
+        id: "embed_1",
+        type: "change-request",
+        typeId: cr.id,
+        targetName: "Reading Progress",
+        nodeType: null,
+        createdAt: "2026-09-05T00:00:00.000Z",
+        expiresAt: "2026-09-05T00:15:00.000Z",
+        revokedAt: null,
+        active: true,
+        framePolicy: { mode: "anywhere", allowedOrigins: [] },
+        url: "https://busabase.example/embed/1",
+        iframeUrl: "https://busabase.example/embed/1?view=iframe",
+      };
+      const original = {
+        content: format === "structured-only" ? [] : [{ type: "text", text: JSON.stringify(cr) }],
+        ...(format !== "content" ? { structuredContent: cr } : {}),
+      };
+      client.listTools.mockResolvedValue({
+        tools: [{ name: "bases_create_change_request", inputSchema: {} }],
+      });
+      client.callTool
+        .mockResolvedValueOnce(original)
+        .mockResolvedValueOnce(
+          format === "content"
+            ? { content: [{ type: "text", text: JSON.stringify(link) }] }
+            : { content: [], structuredContent: link },
+        );
+      (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+      const handle = connectRemoteMcp(
+        ctx,
+        { ...config, spaceId: "configured-space" } as never,
+        createFakeCredentialStore(),
+      );
+      await handle.ready;
+      const signal = new AbortController().signal;
+      const result = await (
+        definitions[0]?.execute as (args: unknown, execution: unknown) => Promise<unknown>
+      )({ targetSpaceId: "explicit-space" }, { signal });
+      expect(client.callTool).toHaveBeenNthCalledWith(
+        2,
+        {
+          name: "embed_links_create",
+          arguments: {
+            type: "change-request",
+            typeId: cr.id,
+            expiresInMinutes: 15,
+            framePolicy: { mode: "anywhere", allowedOrigins: [] },
+            targetSpaceId: "explicit-space",
+          },
+        },
+        undefined,
+        { signal, timeout: 60_000 },
+      );
+      const rendered = (
+        definitions[0]?.output as {
+          render: (args: unknown, result: unknown) => Array<{ text: string }>;
+        }
+      ).render({}, result);
+      expect(rendered.map((block) => JSON.parse(block.text))).toEqual([
+        cr,
+        { ...link, autoPreview: true },
+      ]);
+      await handle.dispose();
+    },
+  );
+
+  it.each(["merged", "rejected", "closed"])(
+    "does not create previews for %s ChangeRequests",
+    async (status) => {
+      const { ctx, definitions } = fakeCtx();
+      const client = fakeClient();
+      const original = {
+        content: [],
+        structuredContent: { id: "crq_done", type: "change_request", status },
+      };
+      client.listTools.mockResolvedValue({
+        tools: [{ name: "change_requests_get", inputSchema: {} }],
+      });
+      client.callTool.mockResolvedValue(original);
+      (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+      const handle = connectRemoteMcp(ctx, config, createFakeCredentialStore());
+      await handle.ready;
+      await expect(
+        (definitions[0]?.execute as (args: unknown, execution: unknown) => Promise<unknown>)(
+          {},
+          {},
+        ),
+      ).resolves.toEqual(original);
+      expect(client.callTool).toHaveBeenCalledOnce();
+      await handle.dispose();
+    },
+  );
+
+  it.each(["throw", "isError", "malformed"])(
+    "preserves successful ChangeRequest results when preview returns %s",
+    async (failure) => {
+      const { ctx, definitions } = fakeCtx();
+      const client = fakeClient();
+      const original = {
+        content: [],
+        structuredContent: { id: "crq_pending", type: "change_request", status: "in_review" },
+      };
+      client.listTools.mockResolvedValue({
+        tools: [{ name: "change_requests_get", inputSchema: {} }],
+      });
+      client.callTool.mockResolvedValueOnce(original);
+      if (failure === "throw") client.callTool.mockRejectedValueOnce(new Error("preview failed"));
+      else
+        client.callTool.mockResolvedValueOnce({
+          content: [],
+          ...(failure === "isError" ? { isError: true } : {}),
+        });
+      (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+      const handle = connectRemoteMcp(
+        ctx,
+        { ...config, spaceId: "configured-space" } as never,
+        createFakeCredentialStore(),
+      );
+      await handle.ready;
+      await expect(
+        (definitions[0]?.execute as (args: unknown, execution: unknown) => Promise<unknown>)(
+          {},
+          {},
+        ),
+      ).resolves.toEqual(original);
+      expect(client.callTool.mock.calls[1]?.[0]).toMatchObject({
+        arguments: { targetSpaceId: "configured-space" },
+      });
+      await handle.dispose();
+    },
+  );
+
+  it("creates previews for existing cards with the configured space and explicit override", async () => {
+    const { ctx } = fakeCtx();
+    const client = fakeClient();
+    client.callTool.mockResolvedValue({
+      content: [],
+      structuredContent: {
+        id: "emb_existing",
+        type: "change-request",
+        typeId: "crq_existing",
+        targetName: "Reading Progress",
+        nodeType: null,
+        createdAt: "2026-09-05T00:00:00.000Z",
+        expiresAt: "2026-09-05T00:15:00.000Z",
+        revokedAt: null,
+        active: true,
+        framePolicy: { mode: "anywhere", allowedOrigins: [] },
+        url: "https://busabase.example/embed/1",
+        iframeUrl: "https://busabase.example/embed/1?view=iframe",
+      },
+    });
+    (Client as unknown as ReturnType<typeof vi.fn>).mockImplementationOnce(() => client);
+    const handle = connectRemoteMcp(
+      ctx,
+      { ...config, spaceId: "configured-space" } as never,
+      createFakeCredentialStore(),
+    );
+    await handle.ready;
+    await expect(
+      createChangeRequestPreviewLink(handle.previewClient(), "crq_existing"),
+    ).resolves.toMatchObject({
+      typeId: "crq_existing",
+      autoPreview: true,
+    });
+    await createChangeRequestPreviewLink(handle.previewClient("override-space"), "crq_existing");
+    expect(client.callTool.mock.calls[0]?.[0]).toMatchObject({
+      arguments: { targetSpaceId: "configured-space" },
+    });
+    expect(client.callTool.mock.calls[1]?.[0]).toMatchObject({
+      arguments: { targetSpaceId: "override-space" },
+    });
+    await handle.dispose();
+    expect(() => handle.previewClient()).toThrow("not connected");
   });
 
   it("validates state, finishes auth, then reconnects with a fresh client and transport", async () => {

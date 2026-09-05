@@ -17,6 +17,12 @@ import type {
 } from "@modelcontextprotocol/sdk/shared/auth.js";
 import { ToolListChangedNotificationSchema } from "@modelcontextprotocol/sdk/types.js";
 import type { ResolvedBusabasePluginConfig } from "./config.js";
+import { createMcpEmbedClient } from "./mcp-embed-client.js";
+import {
+  createChangeRequestPreviewLink,
+  createdChangeRequestId,
+  type EmbedLinksClient,
+} from "./preview-link.js";
 
 // The OAuth flow follows the MIT-licensed MCP TypeScript SDK example and the
 // architecture proven by springbrand-lab/dsh-oauth-mcp-client. DSH's built-in
@@ -394,6 +400,7 @@ async function preflightAuthorizationUrl(
 
 export interface RemoteMcpHandle {
   ready: Promise<{ error?: unknown }>;
+  previewClient(targetSpaceId?: string): EmbedLinksClient;
   dispose(): Promise<void>;
 }
 
@@ -473,7 +480,7 @@ export function connectRemoteMcp(
   function enqueueSync(client: Client): Promise<void> {
     const run = syncChain.then(async () => {
       if (!isCurrent(client)) return;
-      const next = await syncTools(client, ctx, config.serverName, disposers, () => {
+      const next = await syncTools(client, ctx, config, disposers, () => {
         if (isCurrent(client)) void client.close();
       });
       if (!isCurrent(client)) {
@@ -508,7 +515,7 @@ export function connectRemoteMcp(
 
       const createClientAndTransport = () => {
         const nextClient = new Client(
-          { name: "busabase-dsh-plugin", version: "0.1.3" },
+          { name: "busabase-dsh-plugin", version: "0.1.4" },
           { capabilities: {} },
         );
         const transport = new StreamableHTTPClientTransport(new URL(resourceUrl), {
@@ -605,6 +612,10 @@ export function connectRemoteMcp(
   let settling = connectGeneration();
 
   return {
+    previewClient(targetSpaceId) {
+      if (!currentClient || disposed) throw new Error("Busabase Cloud MCP is not connected");
+      return createMcpEmbedClient(currentClient, targetSpaceId ?? config.spaceId);
+    },
     ready: settling.then(() =>
       currentClient
         ? {}
@@ -647,10 +658,11 @@ async function listRemoteTools(client: Client): Promise<RemoteTool[]> {
 async function syncTools(
   client: Client,
   ctx: Context,
-  serverName: string,
+  config: ResolvedBusabasePluginConfig,
   previous: Map<string, () => void>,
   onUnauthorized: () => void,
 ): Promise<Map<string, () => void>> {
+  const { serverName } = config;
   const definitions = new Map<string, ToolDefinition>();
   for (const tool of await listRemoteTools(client)) {
     const publicName = publicToolName(serverName, tool.name);
@@ -658,7 +670,7 @@ async function syncTools(
       throw new Error(`remote MCP tool name collision at ${publicName}`);
     definitions.set(
       publicName,
-      createRemoteToolDefinition(client, serverName, publicName, tool, onUnauthorized),
+      createRemoteToolDefinition(client, config, publicName, tool, onUnauthorized, ctx.logger),
     );
   }
 
@@ -675,11 +687,13 @@ async function syncTools(
 
 function createRemoteToolDefinition(
   client: Client,
-  serverName: string,
+  config: ResolvedBusabasePluginConfig,
   publicName: string,
   tool: RemoteTool,
   onUnauthorized: () => void,
+  logger: Pick<Context["logger"], "warn">,
 ): ToolDefinition {
+  const { serverName } = config;
   return {
     name: publicName,
     description: tool.description ?? "",
@@ -694,10 +708,12 @@ function createRemoteToolDefinition(
       },
       render(_args: unknown, value: JsonValue) {
         const result = value as unknown as McpResult;
-        const text = renderMcpContent(result.content);
-        return [
-          { type: "text", text: text || `(${serverName}: ${tool.name} returned no content)` },
-        ];
+        return result.content.length
+          ? result.content.map((block) => ({
+              type: "text" as const,
+              text: renderMcpContent([block]),
+            }))
+          : [{ type: "text", text: `(${serverName}: ${tool.name} returned no content)` }];
       },
     },
     async execute(args: unknown, execution: ToolRunContext): Promise<McpResult> {
@@ -716,12 +732,43 @@ function createRemoteToolDefinition(
         const content = Array.isArray(result.content) ? (result.content as JsonValue[]) : [];
         if (result.isError === true)
           throw new Error(renderMcpContent(content) || `${tool.name} failed`);
-        return {
+        const value: McpResult = {
           content,
           ...(result.structuredContent !== undefined
             ? { structuredContent: result.structuredContent as JsonValue }
             : {}),
         };
+        const changeRequestId = createdChangeRequestId(
+          `mcp__${serverName}__${tool.name}`,
+          value,
+          serverName,
+        );
+        if (changeRequestId) {
+          const targetSpaceId =
+            typeof args === "object" &&
+            args !== null &&
+            "targetSpaceId" in args &&
+            typeof args.targetSpaceId === "string"
+              ? args.targetSpaceId
+              : config.spaceId;
+          try {
+            const link = await createChangeRequestPreviewLink(
+              createMcpEmbedClient(client, targetSpaceId),
+              changeRequestId,
+              { signal: execution.signal },
+            );
+            // Keep JSON payloads in separate blocks so the UI can merge the preview with its CR.
+            const originalContent = content.length
+              ? content
+              : [{ type: "text", text: JSON.stringify(value.structuredContent) }];
+            value.content = [...originalContent, { type: "text", text: JSON.stringify(link) }];
+          } catch {
+            logger.warn(
+              `busabase preview: could not create an embed link for ChangeRequest ${changeRequestId}; preserving the original MCP result`,
+            );
+          }
+        }
+        return value;
       } catch (error) {
         if (error instanceof UnauthorizedError) onUnauthorized();
         throw error;

@@ -24,6 +24,75 @@ function responseRecorder() {
 }
 
 describe("Busabase server router", () => {
+  it("does not expose local server controls or the API proxy through a Cloud-only router", async () => {
+    const previewClient = vi.fn();
+    const router = createBusabaseServerRouter({ previewClient });
+    for (const [method, url, status] of [
+      ["GET", "/busabase-api/server/status", 404],
+      ["POST", "/busabase-api/server/start", 404],
+      ["POST", "/busabase-api/proxy/api/v1/change-requests/merge", 403],
+      ["GET", "/busabase-api/previews/change-requests/cr_1", 404],
+    ] as const) {
+      const response = responseRecorder();
+      await router(
+        {
+          method,
+          url,
+          headers: {
+            host: "localhost:3080",
+            origin: "http://localhost:3080",
+            "sec-fetch-site": "same-origin",
+          },
+        } as never,
+        response as never,
+      );
+      expect(response.status).toBe(status);
+    }
+    expect(previewClient).not.toHaveBeenCalled();
+  });
+  it("restricts Cloud preview creation to same-origin POST and preserves the selected Space", async () => {
+    const create = vi.fn().mockResolvedValue({ type: "change-request", typeId: "cr_1" });
+    const previewClient = vi.fn(() => ({ embedLinks: { create } }));
+    const router = createBusabaseServerRouter({ previewClient });
+    for (const site of [undefined, "cross-site", "same-origin"]) {
+      const response = responseRecorder();
+      await router(
+        {
+          method: "POST",
+          url: "/busabase-api/previews/change-requests/cr_1?spaceId=org_selected",
+          headers: {
+            host: "localhost:3080",
+            origin: "http://localhost:3080",
+            "sec-fetch-site": site,
+          },
+        } as never,
+        response as never,
+      );
+      expect(response.status).toBe(site === "same-origin" ? 200 : 403);
+    }
+    expect(previewClient).toHaveBeenCalledExactlyOnceWith("org_selected");
+    expect(create).toHaveBeenCalledExactlyOnceWith({
+      type: "change-request",
+      typeId: "cr_1",
+      framePolicy: { mode: "anywhere", allowedOrigins: [] },
+    });
+    create.mockRejectedValue(new Error("private credential details"));
+    const response = responseRecorder();
+    await router(
+      {
+        method: "POST",
+        url: "/busabase-api/previews/change-requests/cr_1",
+        headers: {
+          host: "localhost:3080",
+          origin: "http://localhost:3080",
+          "sec-fetch-site": "same-origin",
+        },
+      } as never,
+      response as never,
+    );
+    expect(response.status).toBe(502);
+    expect(response.body).not.toContain("private credential");
+  });
   it("exposes status and start without accepting launch input", async () => {
     const supervisor = {
       status: vi
@@ -36,7 +105,7 @@ describe("Busabase server router", () => {
         reused: false,
       }),
     };
-    const router = createBusabaseServerRouter(supervisor as never);
+    const router = createBusabaseServerRouter({ supervisor: supervisor as never });
 
     const statusResponse = responseRecorder();
     await router(
@@ -57,14 +126,16 @@ describe("Busabase server router", () => {
 
   it("returns 503 when startup fails", async () => {
     const router = createBusabaseServerRouter({
-      status: vi.fn(),
-      ensure: vi.fn().mockResolvedValue({
-        ok: false,
-        baseUrl: "http://localhost:15419",
-        owned: false,
-        reason: "failed",
-      }),
-    } as never);
+      supervisor: {
+        status: vi.fn(),
+        ensure: vi.fn().mockResolvedValue({
+          ok: false,
+          baseUrl: "http://localhost:15419",
+          owned: false,
+          reason: "failed",
+        }),
+      } as never,
+    });
     const response = responseRecorder();
     await router({ method: "POST", url: "/busabase-api/server/start" } as never, response as never);
     expect(response.status).toBe(503);
@@ -80,7 +151,10 @@ describe("Busabase server router", () => {
       }),
     );
     vi.stubGlobal("fetch", fetchSpy);
-    const router = createBusabaseServerRouter({ ensure } as never, "http://127.0.0.1:15419");
+    const router = createBusabaseServerRouter({
+      supervisor: { ensure } as never,
+      baseUrl: "http://127.0.0.1:15419",
+    });
     const request = Readable.from([JSON.stringify({ verdict: "approved" })]) as IncomingMessage;
     Object.assign(request, {
       method: "POST",
@@ -111,7 +185,10 @@ describe("Busabase server router", () => {
     const ensure = vi.fn().mockResolvedValue({ ok: true });
     const fetchSpy = vi.fn().mockResolvedValue(Response.json({ id: "cr_1", status: "approved" }));
     vi.stubGlobal("fetch", fetchSpy);
-    const router = createBusabaseServerRouter({ ensure } as never, "http://127.0.0.1:15419");
+    const router = createBusabaseServerRouter({
+      supervisor: { ensure } as never,
+      baseUrl: "http://127.0.0.1:15419",
+    });
     const response = fakeResponse();
 
     await router(
@@ -132,7 +209,10 @@ describe("Busabase server router", () => {
 
   it("rejects same-origin mutations without an Origin header", async () => {
     const ensure = vi.fn();
-    const router = createBusabaseServerRouter({ ensure } as never, "http://127.0.0.1:15419");
+    const router = createBusabaseServerRouter({
+      supervisor: { ensure } as never,
+      baseUrl: "http://127.0.0.1:15419",
+    });
     const response = fakeResponse();
 
     await router(
@@ -150,7 +230,10 @@ describe("Busabase server router", () => {
 
   it("rejects cross-site and non-allowlisted Inspector proxy requests", async () => {
     const ensure = vi.fn();
-    const router = createBusabaseServerRouter({ ensure } as never, "http://127.0.0.1:15419");
+    const router = createBusabaseServerRouter({
+      supervisor: { ensure } as never,
+      baseUrl: "http://127.0.0.1:15419",
+    });
     const request = {
       method: "POST",
       url: "/busabase-api/proxy/api/v1/change-requests/reviews",
@@ -173,8 +256,10 @@ describe("Busabase server router", () => {
       url: "http://localhost:15419/embed/emb_1?token=secret",
       iframeUrl: "http://localhost:15419/embed/emb_1?token=secret&view=iframe",
     });
-    const router = createBusabaseServerRouter({ ensure } as never, "http://localhost:15419", {
-      embedLinks: { create } as never,
+    const router = createBusabaseServerRouter({
+      supervisor: { ensure } as never,
+      baseUrl: "http://localhost:15419",
+      previewClient: () => ({ embedLinks: { create } }),
     });
     const response = responseRecorder();
     await router(

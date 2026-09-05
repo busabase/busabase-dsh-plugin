@@ -1,43 +1,65 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
-import type { Busabase } from "busabase-sdk";
-import { createNodePreviewLink } from "./preview-link.js";
+import {
+  createChangeRequestPreviewLink,
+  createNodePreviewLink,
+  type EmbedLinksClient,
+} from "./preview-link.js";
 import type { BusabaseServerSupervisor } from "./server-supervisor.js";
 
 const PROXY_PREFIX = "/busabase-api/proxy";
 
-export function createBusabaseServerRouter(
-  supervisor: BusabaseServerSupervisor,
-  busabaseBaseUrl?: string,
-  previewClient?: Pick<Busabase, "embedLinks">,
-) {
+interface BusabaseServerRouterOptions {
+  supervisor?: BusabaseServerSupervisor;
+  baseUrl?: string;
+  previewClient?: (spaceId?: string) => EmbedLinksClient;
+}
+
+export function createBusabaseServerRouter({
+  supervisor,
+  baseUrl,
+  previewClient,
+}: BusabaseServerRouterOptions) {
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
-    const pathname = new URL(request.url ?? "/", "http://localhost").pathname;
-    if (request.method === "GET" && pathname === "/busabase-api/server/status") {
+    const url = new URL(request.url ?? "/", "http://localhost");
+    const { pathname } = url;
+    if (supervisor && request.method === "GET" && pathname === "/busabase-api/server/status") {
       sendJson(response, 200, await supervisor.status());
       return;
     }
-    if (request.method === "POST" && pathname === "/busabase-api/server/start") {
+    if (supervisor && request.method === "POST" && pathname === "/busabase-api/server/start") {
       const result = await supervisor.ensure();
       sendJson(response, result.ok ? 200 : 503, result);
       return;
     }
-    const previewMatch = pathname.match(/^\/busabase-api\/previews\/nodes\/([^/]+)$/);
+    const previewMatch = pathname.match(
+      /^\/busabase-api\/previews\/(nodes|change-requests)\/([^/]+)$/,
+    );
     if (request.method === "POST" && previewMatch) {
       if (!previewClient || !isSameOriginBrowserRequest(request)) {
         sendJson(response, 403, { error: "Inspector preview request rejected" });
         return;
       }
-      const ready = await supervisor.ensure();
-      if (!ready.ok) {
-        sendJson(response, 503, ready);
-        return;
+      try {
+        const ready = await supervisor?.ensure();
+        if (ready && !ready.ok) {
+          sendJson(response, 503, ready);
+          return;
+        }
+        const id = decodeURIComponent(previewMatch[2] ?? "");
+        const client = previewClient(url.searchParams.get("spaceId") ?? undefined);
+        const create =
+          previewMatch[1] === "nodes" ? createNodePreviewLink : createChangeRequestPreviewLink;
+        sendJson(response, 200, await create(client, id));
+      } catch {
+        sendJson(response, 502, {
+          error:
+            "Could not create the Busabase preview. Check the connection and Space permissions.",
+        });
       }
-      const nodeId = decodeURIComponent(previewMatch[1] ?? "");
-      sendJson(response, 200, await createNodePreviewLink(previewClient, nodeId));
       return;
     }
     if (pathname.startsWith(`${PROXY_PREFIX}/`)) {
-      if (!busabaseBaseUrl || !isSameOriginBrowserRequest(request)) {
+      if (!supervisor || !baseUrl || !isSameOriginBrowserRequest(request)) {
         sendJson(response, 403, { error: "Inspector proxy request rejected" });
         return;
       }
@@ -51,7 +73,7 @@ export function createBusabaseServerRouter(
         sendJson(response, 503, ready);
         return;
       }
-      await proxyInspectorRequest(request, response, busabaseBaseUrl, targetPath);
+      await proxyInspectorRequest(request, response, baseUrl, targetPath);
       return;
     }
     response.writeHead(404);

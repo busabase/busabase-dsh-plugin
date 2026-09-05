@@ -5,28 +5,20 @@ import {
   normalizeBusabaseResult,
 } from "./normalize.js";
 
-export interface CreatedPreviewLink {
-  id: string;
-  type: "node";
-  typeId: string;
-  targetName?: string;
-  nodeType?: string | null;
-  url: string;
-  iframeUrl: string;
-  autoPreview: true;
+type CreateEmbedLink = Busabase["embedLinks"]["create"];
+export type EmbedLinkInput = Parameters<CreateEmbedLink>[0];
+export type EmbedLinkOptions = Parameters<CreateEmbedLink>[1];
+export type CreatedEmbedLink = Awaited<ReturnType<CreateEmbedLink>>;
+export interface EmbedLinksClient {
+  embedLinks: {
+    create(input: EmbedLinkInput, options?: EmbedLinkOptions): Promise<CreatedEmbedLink>;
+  };
 }
-
-export interface CreatedChangeRequestPreviewLink {
-  id: string;
+export type CreatedPreviewLink = CreatedEmbedLink & { type: "node"; autoPreview: true };
+export type CreatedChangeRequestPreviewLink = CreatedEmbedLink & {
   type: "change-request";
-  typeId: string;
-  targetName?: string;
-  url: string;
-  iframeUrl: string;
   autoPreview: true;
-}
-
-type EmbedLinksClient = Pick<Busabase, "embedLinks">;
+};
 
 const REVIEWABLE_CHANGE_REQUEST_STATUSES = [
   "in_review",
@@ -89,25 +81,34 @@ export function isAutoPreviewToolName(toolName: string, serverName: string): boo
 export async function createNodePreviewLink(
   client: EmbedLinksClient,
   nodeId: string,
+  options?: EmbedLinkOptions,
 ): Promise<CreatedPreviewLink> {
-  const link = await client.embedLinks.create({
-    type: "node",
-    typeId: nodeId,
-    framePolicy: { mode: "anywhere", allowedOrigins: [] },
-  });
-  return { ...link, type: "node", typeId: nodeId, autoPreview: true };
+  return createPreviewLink(client, { type: "node", typeId: nodeId }, options);
 }
 
 export async function createChangeRequestPreviewLink(
   client: EmbedLinksClient,
   changeRequestId: string,
+  options?: EmbedLinkOptions,
 ): Promise<CreatedChangeRequestPreviewLink> {
-  const link = await client.embedLinks.create({
-    type: "change-request",
-    typeId: changeRequestId,
+  return createPreviewLink(client, { type: "change-request", typeId: changeRequestId }, options);
+}
+
+async function createPreviewLink<T extends EmbedLinkInput["type"]>(
+  client: EmbedLinksClient,
+  target: { type: T; typeId: string },
+  options?: EmbedLinkOptions,
+): Promise<CreatedEmbedLink & { type: T; autoPreview: true }> {
+  const input: EmbedLinkInput = {
+    ...target,
     framePolicy: { mode: "anywhere", allowedOrigins: [] },
-  });
-  return { ...link, type: "change-request", typeId: changeRequestId, autoPreview: true };
+  };
+  const link = options
+    ? await client.embedLinks.create(input, options)
+    : await client.embedLinks.create(input);
+  if (link.type !== target.type || link.typeId !== target.typeId)
+    throw new Error("Busabase returned a preview for a different target");
+  return { ...link, type: target.type, autoPreview: true };
 }
 
 export function autoPreviewRef(value: unknown): BusabaseEntityRef | null {

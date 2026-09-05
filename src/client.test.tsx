@@ -52,6 +52,57 @@ afterEach(() => {
 });
 
 describe("client plugin", () => {
+  it("loads an existing Cloud ChangeRequest preview in its original Space", async () => {
+    const fetchPreview = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "change-request",
+          typeId: "cr_1",
+          url: "https://busabase.com/embed/emb_1?token=test",
+          iframeUrl: "https://busabase.com/embed/emb_1?token=test&view=iframe",
+          autoPreview: true,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const { card, Details } = setup({ baseUrl: "https://busabase.com", spaceId: "org_default" });
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          block={{
+            kind: "tool-result",
+            call: {
+              name: "mcp__busabase__change_requests_get",
+              argsRaw: JSON.stringify({ targetSpaceId: "org_original" }),
+            },
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: "cr_1",
+                  status: "in_review",
+                  operations: [],
+                  name: "Reading Progress",
+                }),
+              },
+            ],
+            isError: false,
+          }}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Reading Progress/ }));
+    const frame = await screen.findByTitle("Reading Progress Change Request");
+    expect(frame.getAttribute("src")).toBe(
+      "https://busabase.com/embed/emb_1?token=test&view=iframe",
+    );
+    expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms allow-same-origin");
+    expect(String(fetchPreview.mock.calls[0][0])).toContain("spaceId=org_original");
+    expect(fetchPreview).toHaveBeenCalledOnce();
+  });
   it("registers keyed Busabase cards and opens the right panel on selection", () => {
     const { registrations, layout, card } = setup();
     expect(registrations.find(({ config }) => config.name === "details")?.config.priority).toBe(
