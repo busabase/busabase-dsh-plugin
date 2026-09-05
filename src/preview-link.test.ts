@@ -4,7 +4,6 @@ import type { Busabase } from "busabase-sdk";
 import { describe, expect, it, vi } from "vitest";
 import {
   autoPreviewRef,
-  cloudAuthoritativePreviewRef,
   createChangeRequestPreviewLink,
   createdChangeRequestId,
   createdNodeId,
@@ -146,55 +145,5 @@ describe("preview links", () => {
       changeRequestId: "crq_1",
       metadata: { autoPreview: true },
     });
-  });
-
-  it("recognizes a Cloud MCP result carrying a server-authoritative embed link, without an autoPreview stamp", () => {
-    const result = {
-      structuredContent: {
-        id: "emb_cloud",
-        type: "change-request",
-        typeId: "crq_cloud",
-        targetName: "Cloud change request",
-        url: "https://busabase.com/embed/emb_cloud?token=secret",
-        iframeUrl: "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
-      },
-    };
-    expect(
-      cloudAuthoritativePreviewRef("mcp__busabase__embed_links_create", result, "busabase"),
-    ).toMatchObject({
-      type: "change-request",
-      changeRequestId: "crq_cloud",
-      metadata: {
-        openUrl: "https://busabase.com/embed/emb_cloud?token=secret",
-        previewUrl: "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
-      },
-    });
-  });
-
-  it("does not treat a plain Cloud result without an embed link as auto-openable", () => {
-    const result = {
-      structuredContent: { id: "crq_plain", type: "change_request", operations: [] },
-    };
-    expect(
-      cloudAuthoritativePreviewRef("mcp__busabase__embed_links_create", result, "busabase"),
-    ).toBeNull();
-  });
-
-  it("does not treat an embed-shaped result from a create or query tool as auto-openable", () => {
-    const result = {
-      structuredContent: {
-        id: "emb_cloud",
-        type: "change-request",
-        typeId: "crq_cloud",
-        url: "https://busabase.com/embed/emb_cloud?token=secret",
-        iframeUrl: "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
-      },
-    };
-    for (const toolName of [
-      "mcp__busabase__nodes_create_change_request",
-      "mcp__busabase__change_request_query",
-    ]) {
-      expect(cloudAuthoritativePreviewRef(toolName, result, "busabase")).toBeNull();
-    }
   });
 });

@@ -6,14 +6,15 @@ import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { ToolCallOwnerProps, ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import { Busabase } from "busabase-sdk";
 import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
+import { resolveBusabaseClientConfig } from "./client-config.js";
 import { BusabaseInspectorStore } from "./client-store.js";
-import { type BusabasePluginConfig, resolveConfig } from "./config.js";
+import type { BusabasePluginConfig } from "./config.js";
 import {
   BUILT_IN_NODE_TYPES,
   type BusabaseEntityRef,
   normalizeBusabaseResult,
 } from "./normalize.js";
-import { cloudAuthoritativePreviewRef, isAutoPreviewToolName } from "./preview-link.js";
+import { isAutoPreviewToolName } from "./preview-link.js";
 import styles from "./styles.css";
 
 export const name = "@busabase/dsh-plugin/client";
@@ -94,13 +95,19 @@ const RAW_TOOL_NAMES = [
   "nodes_update_visibility",
   "operations_revise",
   "record_change_request",
+  "record_bulk_update_change_request",
   "record_find_by_field",
   "record_query",
   "records_get",
+  "records_group_by",
   "records_list_change_requests",
   "records_list_links",
   "records_list_page",
   "search",
+  "system_health",
+  "system_meta",
+  "templates_list",
+  "users_me",
   "view_change_request",
   "webhooks_create",
   "webhooks_delete",
@@ -113,7 +120,7 @@ const RAW_TOOL_NAMES = [
 
 export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
   ensureStyles();
-  const config = resolveConfig(input);
+  const config = resolveBusabaseClientConfig(input);
   const inspectorClient = config.server.manageable
     ? new Busabase({
         baseUrl: new URL("/busabase-api/proxy", window.location.origin).toString(),
@@ -143,11 +150,9 @@ export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
       if (!target || target.hasAttribute("download")) return;
       const ref = busabaseRefFromLink(target.href, target.textContent, config.baseUrl);
       if (!ref) return;
-      const isRemote = config.connection.mode === "remote";
-      const isAuthoritativePreview = ref.type === "embed" || ref.type === "change-request";
-      if (isRemote && !isAuthoritativePreview) return;
+      if (config.connection.mode === "remote") return;
       event.preventDefault();
-      if (ref.type === "embed" || (isRemote && isAuthoritativePreview)) store.selectPreview(ref);
+      if (ref.type === "embed") store.selectPreview(ref);
       else store.select(ref);
       ctx.layout.openDetails();
     };
@@ -216,18 +221,13 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
   return function BusabaseToolCard({ block, toolName, sessionId }) {
     const refs = useMemo(() => normalizeBusabaseResult(extractToolPayload(block)), [block]);
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
-    const isRemote = store.config.connection.mode === "remote";
-    const preview =
-      (isAutoPreviewToolName(toolName, store.config.serverName)
-        ? refs.find(
-            (ref) =>
-              (ref.type === "embed" || ref.type === "change-request") &&
-              ref.metadata.autoPreview === true,
-          )
-        : undefined) ??
-      (isRemote
-        ? cloudAuthoritativePreviewRef(toolName, extractToolPayload(block), store.config.serverName)
-        : undefined);
+    const preview = isAutoPreviewToolName(toolName, store.config.serverName)
+      ? refs.find(
+          (ref) =>
+            (ref.type === "embed" || ref.type === "change-request") &&
+            ref.metadata.autoPreview === true,
+        )
+      : undefined;
     useEffect(() => {
       if (!preview) return;
       const selected = store.getSnapshot().selected;
@@ -236,9 +236,8 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
         (preview.type === "change-request" &&
           selected?.type === "change-request" &&
           selected.id === preview.id &&
-          selected.metadata.previewUrl === preview.metadata.previewUrl &&
-          (selected.metadata.autoPreview === true ||
-            selected.metadata.openUrl === preview.metadata.openUrl))
+          selected.metadata.autoPreview === true &&
+          selected.metadata.previewUrl === preview.metadata.previewUrl)
       )
         return;
       if (preview.type === "change-request" && store.config.connection.mode === "local")

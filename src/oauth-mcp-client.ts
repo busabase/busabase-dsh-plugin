@@ -395,16 +395,6 @@ async function preflightAuthorizationUrl(
 export interface RemoteMcpHandle {
   ready: Promise<{ error?: unknown }>;
   dispose(): Promise<void>;
-  /**
-   * Mints a ChangeRequest embed link via the authenticated `embed_links_create`
-   * MCP tool, reusing the same live Client generation as the rest of the bridge
-   * (no second connection, no REST). Rejects if no generation is currently connected.
-   */
-  createChangeRequestEmbedLink(
-    changeRequestId: string,
-    targetSpaceId: string | undefined,
-    signal: AbortSignal,
-  ): Promise<McpResult>;
 }
 
 /** Connect a remote Busabase MCP resource and keep its DSH tool generation live. */
@@ -518,7 +508,7 @@ export function connectRemoteMcp(
 
       const createClientAndTransport = () => {
         const nextClient = new Client(
-          { name: "busabase-dsh-plugin", version: "0.1.2" },
+          { name: "busabase-dsh-plugin", version: "0.1.3" },
           { capabilities: {} },
         );
         const transport = new StreamableHTTPClientTransport(new URL(resourceUrl), {
@@ -620,29 +610,6 @@ export function connectRemoteMcp(
         ? {}
         : { error: firstAttemptError ?? new Error(`${label}: initial connection failed`) },
     ),
-    async createChangeRequestEmbedLink(
-      changeRequestId: string,
-      targetSpaceId: string | undefined,
-      signal: AbortSignal,
-    ): Promise<McpResult> {
-      const client = currentClient;
-      if (!client || disposed)
-        throw new Error(`${label}: no active Cloud MCP connection to mint an embed link`);
-      const result = await callRemoteTool(
-        client,
-        "embed_links_create",
-        {
-          type: "change-request",
-          typeId: changeRequestId,
-          framePolicy: { mode: "anywhere", allowedOrigins: [] },
-          ...(targetSpaceId ? { targetSpaceId } : {}),
-        },
-        signal,
-      );
-      if (!isCurrent(client))
-        throw new Error(`${label}: Cloud MCP connection changed while minting an embed link`);
-      return result;
-    },
     async dispose(): Promise<void> {
       disposed = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
@@ -737,37 +704,29 @@ function createRemoteToolDefinition(
       if (tool.execution?.taskSupport === "required")
         throw new Error(`Tool ${tool.name} requires unsupported task-based execution`);
       try {
-        return await callRemoteTool(
-          client,
-          tool.name,
-          typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {},
-          execution.signal,
+        const result = await client.callTool(
+          {
+            name: tool.name,
+            arguments:
+              typeof args === "object" && args !== null ? (args as Record<string, unknown>) : {},
+          },
+          undefined,
+          { signal: execution.signal, timeout: TOOL_CALL_TIMEOUT_MS },
         );
+        const content = Array.isArray(result.content) ? (result.content as JsonValue[]) : [];
+        if (result.isError === true)
+          throw new Error(renderMcpContent(content) || `${tool.name} failed`);
+        return {
+          content,
+          ...(result.structuredContent !== undefined
+            ? { structuredContent: result.structuredContent as JsonValue }
+            : {}),
+        };
       } catch (error) {
         if (error instanceof UnauthorizedError) onUnauthorized();
         throw error;
       }
     },
-  };
-}
-
-async function callRemoteTool(
-  client: Client,
-  toolName: string,
-  args: Record<string, unknown>,
-  signal: AbortSignal,
-): Promise<McpResult> {
-  const result = await client.callTool({ name: toolName, arguments: args }, undefined, {
-    signal,
-    timeout: TOOL_CALL_TIMEOUT_MS,
-  });
-  const content = Array.isArray(result.content) ? (result.content as JsonValue[]) : [];
-  if (result.isError === true) throw new Error(renderMcpContent(content) || `${toolName} failed`);
-  return {
-    content,
-    ...(result.structuredContent !== undefined
-      ? { structuredContent: result.structuredContent as JsonValue }
-      : {}),
   };
 }
 

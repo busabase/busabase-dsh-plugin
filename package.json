@@ -1,6 +1,6 @@
 {
   "name": "@busabase/dsh-plugin",
-  "version": "0.1.2",
+  "version": "0.1.3",
   "description": "Busabase MCP, cards, and live inspector for DeepSeek Harness",
   "license": "MIT",
   "homepage": "https://github.com/busabase/busabase-dsh-plugin#readme",
@@ -70,7 +70,7 @@
     "preinstall": "node ./scripts/link-skills.mjs",
     "build": "node ./scripts/link-skills.mjs && node ./scripts/build.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit",
-    "test": "node ./scripts/link-skills.mjs && vitest run && node --test ./scripts/link-skills.test.mjs",
+    "test": "node ./scripts/link-skills.mjs && node ./scripts/run-vitest.mjs && node --test ./scripts/link-skills.test.mjs",
     "test:e2e": "node ./scripts/e2e.mjs",
     "test:e2e:browser": "node ./scripts/e2e-browser.mjs",
     "check": "pnpm typecheck && pnpm test && pnpm build",
