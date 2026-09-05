@@ -20,12 +20,12 @@ import { apply as applyTool, inject as injectTool } from "@deepseek-ai/dsh-clien
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { apply as applyBusabase, inject as injectBusabase } from "./client.js";
+import { BUSABASE_HOST_CONFIG_GLOBAL, type BusabaseClientConfig } from "./client-config.js";
 import { BusabaseInspectorStore } from "./client-store.js";
 
 const SESSION_ID = "s1" as SessionId;
 const TOOL_NAME = "mcp__busabase__bases_get";
 const CHANGE_REQUEST_TOOL_NAME = "mcp__busabase__change_requests_get";
-const EMBED_LINK_CREATE_TOOL_NAME = "mcp__busabase__embed_links_create";
 
 class ResizeObserverStub {
   observe(): void {}
@@ -382,7 +382,30 @@ it("keeps Cloud results link-only without Inspector REST actions or embeds", asy
   await runtime.dispose();
 });
 
-it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspector without REST reads or review actions", async () => {
+it("uses the host-injected Cloud config for a ChangeRequest preview with no manual config", async () => {
+  // Reproduces production boot: the client-plugin loader activates client bundles with only
+  // `{ name }`, never a `config` (see client-config.ts) — so apply() gets `{}` here, exactly
+  // like it does for real, and must still resolve Cloud/remote behavior via the global the
+  // host plugin (index.ts) injects into the boot HTML ahead of this bundle's own script.
+  const hostConfig: BusabaseClientConfig = {
+    baseUrl: "https://busabase.com",
+    spaceId: null,
+    serverName: "busabase",
+    connection: { mode: "remote" },
+    server: { manageable: false },
+    liveRefresh: {
+      enabled: true,
+      pollIntervalMs: 30_000,
+      reconnectInitialDelayMs: 1_000,
+      reconnectMaxDelayMs: 30_000,
+    },
+    airAppIframe: { enabled: true },
+    baseIframe: { enabled: true },
+    changeRequestIframe: { enabled: true },
+    confirmations: { review: true, merge: true, close: true },
+  };
+  vi.stubGlobal(BUSABASE_HOST_CONFIG_GLOBAL, hostConfig);
+
   const runtime = await SlotTestRuntime.create();
   const layout = { openDetails: vi.fn(), closeDetails: vi.fn() };
 
@@ -400,8 +423,8 @@ it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspe
 
   const result = changeRequestResult();
   result.call = {
-    name: EMBED_LINK_CREATE_TOOL_NAME,
-    argsRaw: JSON.stringify({ type: "change-request", typeId: "crq_cloud" }),
+    name: "mcp__busabase__embed_links_create",
+    argsRaw: JSON.stringify({ type: "change-request", typeId: "crqcloud" }),
   };
   result.content = [
     {
@@ -409,16 +432,16 @@ it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspe
       text: JSON.stringify({
         id: "emb_cloud",
         type: "change-request",
-        typeId: "crq_cloud",
+        typeId: "crqcloud",
         targetName: "Cloud proposal",
-        url: "https://busabase.com/embed/emb_cloud?token=secret",
-        iframeUrl: "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
+        url: "https://busabase.com/dashboard/org_1/inbox/crqcloud",
+        iframeUrl: "https://busabase.com/embed/emb_cloud?token=preview-token&view=iframe",
       }),
     },
   ];
   await runtime.sessions.add({
     id: SESSION_ID,
-    summary: { title: "Busabase Cloud embed", displayTitle: "Busabase Cloud embed" },
+    summary: { title: "Busabase Cloud", displayTitle: "Busabase Cloud" },
     snapshot: { nodes: [result], chat: toolChatSnapshot([result]) },
     session: {
       loadOlder: vi.fn<ISession["loadOlder"]>(),
@@ -428,9 +451,9 @@ it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspe
   await runtime.root.declare(LAYOUT_CHILDREN, AppRoot);
 
   const busabase = await runtime.mount({
-    name: "busabase-cloud-embed-test-client",
+    name: "busabase-cloud-bridge-test-client",
     inject: [...injectBusabase],
-    apply: (ctx) => applyBusabase(ctx, { baseUrl: "https://busabase.com" }),
+    apply: (ctx) => applyBusabase(ctx, {}),
   });
   await runtime.mount({ inject: [...injectConversation], apply: applyConversation });
   await runtime.mount({ inject: [...injectTool], apply: applyTool });
@@ -438,20 +461,20 @@ it("auto-opens a Cloud MCP result's server-authoritative embed link in the Inspe
   const fetchMock = vi.mocked(fetch);
   fetchMock.mockClear();
   const view = runtime.renderRoot();
-
-  await waitFor(() => expect(layout.openDetails).toHaveBeenCalledTimes(1));
+  await waitFor(() => expect(layout.openDetails).toHaveBeenCalled());
   const details = view.container.querySelector(".bb-panel");
   expect(details).not.toBeNull();
   const panel = within(details as HTMLElement);
-  const frame = details?.querySelector("iframe");
-  expect(frame).not.toBeNull();
-  expect(frame?.getAttribute("src")).toBe(
-    "https://busabase.com/embed/emb_cloud?token=secret&view=iframe",
-  );
   expect(panel.queryByRole("button", { name: "Refresh" })).toBeNull();
   expect(panel.queryByRole("button", { name: "Approve" })).toBeNull();
-  expect(panel.queryByRole("button", { name: "Merge" })).toBeNull();
-  expect(panel.queryByRole("button", { name: "Close" })).toBeNull();
+  expect(panel.queryByRole("button", { name: "Reject" })).toBeNull();
+  expect(details?.querySelector("iframe")?.getAttribute("src")).toBe(
+    "https://busabase.com/embed/emb_cloud?token=preview-token&view=iframe",
+  );
+  fireEvent.click(panel.getByRole("button", { name: "More" }));
+  expect(panel.getByRole("menuitem", { name: "Open in Busabase" }).getAttribute("href")).toBe(
+    "https://busabase.com/dashboard/org_1/inbox/crqcloud",
+  );
   expect(fetchMock).not.toHaveBeenCalled();
 
   await busabase.dispose();

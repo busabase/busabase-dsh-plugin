@@ -9,12 +9,9 @@ import { FileSystemSkillProvider } from "@deepseek-ai/dsh-skill-filesystem";
 import type {} from "@deepseek-ai/dsh-system-prompt";
 import { defineTool } from "@deepseek-ai/dsh-tools";
 import { Busabase } from "busabase-sdk";
+import { BUSABASE_HOST_CONFIG_GLOBAL, toBusabaseClientConfig } from "./client-config.js";
 import { type BusabasePluginConfig, Config, resolveConfig } from "./config.js";
-import {
-  registerMcpResultPreview,
-  registerRemoteChangeRequestPreview,
-} from "./mcp-result-preview.js";
-import { unwrapMcpResult } from "./normalize.js";
+import { registerMcpResultPreview } from "./mcp-result-preview.js";
 import { connectRemoteMcp, type RemoteMcpHandle } from "./oauth-mcp-client.js";
 import { BUSABASE_SYSTEM_PROMPT } from "./prompt.js";
 import { createBusabaseServerRouter } from "./server-router.js";
@@ -23,6 +20,7 @@ import { BusabaseServerSupervisor } from "./server-supervisor.js";
 export const name = "@busabase/dsh-plugin";
 export const inject = ["systemPrompt", "tools", "skills"];
 export { Config, resolveConfig };
+export * from "./client-config.js";
 export type { BusabasePluginConfig, ResolvedBusabasePluginConfig } from "./config.js";
 export * from "./normalize.js";
 export * from "./preview-link.js";
@@ -55,6 +53,17 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
     order: 160,
     text: BUSABASE_SYSTEM_PROMPT,
   });
+  // Registered for BOTH connection modes: the client bundle (`client.tsx`) has no other way to
+  // learn the host's resolved config (the client-plugin loader activates it with only `{ name }`,
+  // never a `config`), so it reads this global instead. Without it in remote mode, the client
+  // bundle falls back to its own local defaults and mistakes a Cloud host for a local one.
+  ctx.on("webserver/index-inject", (table) => {
+    table.push({
+      kind: "global",
+      name: BUSABASE_HOST_CONFIG_GLOBAL,
+      value: toBusabaseClientConfig(config),
+    });
+  });
   if (config.connection.mode === "remote") {
     let handle!: RemoteMcpHandle;
     ctx.effect(() => {
@@ -66,19 +75,6 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
       handle = connectRemoteMcp(ctx, config, credentials);
       return async () => handle.dispose();
     }, "busabase: cloud mcp connection");
-    registerRemoteChangeRequestPreview(
-      ctx,
-      config.serverName,
-      async (changeRequestId, targetSpaceId, signal) => {
-        const result = await handle.createChangeRequestEmbedLink(
-          changeRequestId,
-          targetSpaceId,
-          signal,
-        );
-        const link = unwrapMcpResult(result) as Record<string, unknown>;
-        return { ...link, type: "change-request", typeId: changeRequestId, autoPreview: true };
-      },
-    );
     const outcome = await handle.ready;
     if (outcome.error)
       throw new Error(

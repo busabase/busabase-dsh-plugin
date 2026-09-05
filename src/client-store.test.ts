@@ -465,54 +465,6 @@ describe("Node URLs", () => {
       store.embedUrl({ ...ref, href: "javascript:alert(1)", metadata: { autoPreview: true } }),
     ).toBeUndefined();
   });
-
-  it("accepts a Cloud MCP embed link only when it matches the configured Cloud origin", () => {
-    const store = new BusabaseInspectorStore(
-      resolveConfig({ baseUrl: "https://busabase.example" }),
-      fakeClient(),
-    );
-    const ref = {
-      type: "embed",
-      id: "emb_cloud",
-      title: "Cloud preview",
-      href: "https://busabase.example/embed/emb_cloud?token=secret&view=iframe",
-      metadata: { openUrl: "https://busabase.example/embed/emb_cloud?token=secret" },
-      raw: {},
-    } satisfies BusabaseEntityRef;
-    expect(store.embedUrl(ref)).toBe(ref.href);
-  });
-
-  it("rejects a foreign-origin embed link from a Cloud MCP result even when marked automatic", () => {
-    const store = new BusabaseInspectorStore(
-      resolveConfig({ baseUrl: "https://busabase.example" }),
-      fakeClient(),
-    );
-    const ref = {
-      type: "embed",
-      id: "emb_cloud",
-      title: "Cloud preview",
-      href: "https://attacker.example/embed/emb_cloud?token=secret&view=iframe",
-      metadata: { autoPreview: true },
-      raw: {},
-    } satisfies BusabaseEntityRef;
-    expect(store.embedUrl(ref)).toBeUndefined();
-  });
-
-  it("rejects a javascript: embed link from a Cloud MCP result even when marked automatic", () => {
-    const store = new BusabaseInspectorStore(
-      resolveConfig({ baseUrl: "https://busabase.example" }),
-      fakeClient(),
-    );
-    const ref = {
-      type: "embed",
-      id: "emb_cloud",
-      title: "Cloud preview",
-      href: "javascript:alert(1)",
-      metadata: { autoPreview: true },
-      raw: {},
-    } satisfies BusabaseEntityRef;
-    expect(store.embedUrl(ref)).toBeUndefined();
-  });
 });
 
 describe("ChangeRequest URLs", () => {

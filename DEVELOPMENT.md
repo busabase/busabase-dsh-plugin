@@ -118,11 +118,9 @@ flowchart LR
 - Subscribes to live events and refreshes based on dependencies (local mode only);
 - Automatically ensures the Busabase server is running before reads or reviews (local mode only);
 - Provides review actions gated on user confirmation (local mode only);
-- Safely previews Base, AirApp, rich text, and same-origin embedded links; in remote mode it instead opens Busabase's own authoritative embed and ChangeRequest preview links.
+- Safely previews Base, AirApp, rich text, and same-origin embedded links.
 
 After `node_create` returns a canonical Node, the Host best-effort mints an authoritative embed link and appends it to the MCP result. After a human merges a Node-creating ChangeRequest, the Inspector performs the same step through a same-origin Host endpoint and opens the embed automatically. Preview failure never changes an otherwise successful MCP call or merge. Managed local Inspector reads and review actions use a narrow same-origin proxy allowlist; the Agent-facing MCP connection remains capped at `changeRequest`.
-
-Cloud mode has no local trusted-Host REST step. Instead, after a recognized create/get tool returns one pending ChangeRequest, a `tools/post-execute` hook calls `embed_links_create` through the same authenticated MCP Client, preserves the triggering call's `targetSpaceId` and cancellation signal, appends the authoritative `{ url, iframeUrl }` result, and opens it automatically. Preview failure only logs a warning and preserves the original successful result. Explicit `embed_links_create` results and clicks on the same kind of link open in the Inspector too. The Client strictly validates the link's origin against the configured Cloud `baseUrl` before rendering it, and Cloud never falls back to an unauthenticated REST read — review, merge, close, live refresh, and Base/AirApp iframes remain local-only.
 
 ## Full configuration reference
 
@@ -218,7 +216,6 @@ Setting `baseUrl` to a non-loopback `https://` address switches `apply()` (`src/
 | Accidentally reuses another local service | `/api/health` must return `service: busabase` and `status: ok` |
 | Local MCP picks the wrong workspace | The loopback connection always sends `x-busabase-space: local` (local mode only) |
 | iframe leaks credentials | Only canonical URLs or server-generated embed URLs are used; API keys are never concatenated in |
-| Agent turns preview access into general sharing | `embedLinks.create` admits a `changeRequest` credential only so the domain can mint a ChangeRequest preview; node and record capabilities still require `manage`, while list/revoke remain `manage` at the transport gate |
 | Live connection drops | Automatically falls back to bounded, visible-page-only polling (local mode only) |
 | Remote OAuth token leaks into config, logs, or the browser | Tokens live only in `ctx.credentials`'s grant-record store, never in plugin config or committed files; the Inspector does not receive them, and remote `review`, `merge`, `close`, refresh, live subscription, and Base/AirApp iframe paths are disabled instead of falling back to unauthenticated REST calls |
 

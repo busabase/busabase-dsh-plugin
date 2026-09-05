@@ -188,7 +188,7 @@ function embedLinkRef(value: Record<string, unknown>): BusabaseEntityRef {
       metadata: {
         openUrl: url,
         previewUrl: iframeUrl,
-        ...(value.autoPreview === true ? { autoPreview: true } : {}),
+        autoPreview: true,
       },
       raw: value,
     };
@@ -200,7 +200,7 @@ function embedLinkRef(value: Record<string, unknown>): BusabaseEntityRef {
     href: iframeUrl,
     metadata: {
       openUrl: url,
-      ...(value.autoPreview === true ? { autoPreview: true } : {}),
+      autoPreview: true,
     },
     raw: value,
   };

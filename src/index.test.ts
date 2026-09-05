@@ -7,7 +7,6 @@ vi.mock("./oauth-mcp-client.js", () => ({
   connectRemoteMcp: vi.fn(() => ({
     ready: Promise.resolve({}),
     dispose: vi.fn().mockResolvedValue(undefined),
-    createChangeRequestEmbedLink: vi.fn(),
   })),
 }));
 
@@ -21,7 +20,6 @@ function createHostCtx() {
   const routes: Array<Record<string, unknown>> = [];
   const skillProviders: unknown[] = [];
   const listeners: string[] = [];
-  const listenerCallbacks: Array<(...args: unknown[]) => unknown> = [];
   const disposers: Array<() => unknown> = [];
   const ctx = {
     systemPrompt: {
@@ -57,9 +55,8 @@ function createHostCtx() {
       if (typeof dispose === "function") disposers.push(dispose as () => unknown);
       return dispose;
     },
-    on: (event: string, callback: (...args: unknown[]) => unknown) => {
+    on: (event: string) => {
       listeners.push(event);
-      listenerCallbacks.push(callback);
       return vi.fn();
     },
     logger: { warn: vi.fn(), info: vi.fn(), error: vi.fn() },
@@ -69,18 +66,7 @@ function createHostCtx() {
       plugins.push({ plugin, config });
     },
   };
-  return {
-    ctx,
-    sections,
-    plugins,
-    guard,
-    tools,
-    routes,
-    skillProviders,
-    listeners,
-    listenerCallbacks,
-    disposers,
-  };
+  return { ctx, sections, plugins, guard, tools, routes, skillProviders, listeners, disposers };
 }
 
 describe("host plugin wiring", () => {
@@ -136,7 +122,6 @@ describe("host plugin wiring", () => {
         resolveReady = resolve;
       }),
       dispose,
-      createChangeRequestEmbedLink: vi.fn(),
     });
 
     let settled = false;
@@ -151,8 +136,9 @@ describe("host plugin wiring", () => {
     expect(plugins).toEqual([]);
     expect(tools).toEqual([]);
     expect(routes).toEqual([]);
-    // The remote ChangeRequest preview augmentation registers its own post-execute listener.
-    expect(listeners).toEqual(["tools/post-execute"]);
+    // The client-config bridge listener is registered for both connection modes (see apply()),
+    // so it's present even though remote mode skips every other local-only registration.
+    expect(listeners).toEqual(["webserver/index-inject"]);
     expect(connectRemoteMcp).toHaveBeenCalledWith(
       ctx,
       expect.objectContaining({ connection: { mode: "remote" } }),
@@ -166,52 +152,6 @@ describe("host plugin wiring", () => {
     expect(settled).toBe(true);
   });
 
-  it("mints a ChangeRequest embed link via the current handle after a pending create, preserving targetSpaceId and cancellation", async () => {
-    const { ctx, listenerCallbacks } = createHostCtx();
-    const credentials = { readRecord: vi.fn(), modifyRecord: vi.fn(), deleteRecord: vi.fn() };
-    ctx.get = vi.fn((name: string) => (name === "credentials" ? credentials : undefined)) as never;
-    const createChangeRequestEmbedLink = vi.fn().mockResolvedValue({
-      content: [],
-      structuredContent: {
-        id: "emb_1",
-        typeId: "crq_1",
-        url: "https://busabase.example/embed/emb_1",
-        iframeUrl: "https://busabase.example/embed/emb_1?view=iframe",
-      },
-    });
-    vi.mocked(connectRemoteMcp).mockReturnValueOnce({
-      ready: Promise.resolve({}),
-      dispose: vi.fn().mockResolvedValue(undefined),
-      createChangeRequestEmbedLink,
-    });
-
-    await apply(ctx as never, { baseUrl: "https://busabase.example" });
-    const postExecute = listenerCallbacks[0] as (
-      exec: { name: string; arguments: unknown; signal: AbortSignal },
-      result: { isError: boolean; value: unknown; content: unknown[] },
-      next: () => Promise<{ kind: "accept" }>,
-    ) => Promise<{ kind: string; content?: unknown[] }>;
-    const signal = new AbortController().signal;
-    const decision = await postExecute(
-      { name: "mcp__busabase__node_create", arguments: { targetSpaceId: "spc_1" }, signal },
-      {
-        isError: false,
-        value: { id: "crq_1", type: "change_request", status: "in_review" },
-        content: [{ type: "text", text: "{}" }],
-      },
-      async () => ({ kind: "accept" }),
-    );
-    expect(createChangeRequestEmbedLink).toHaveBeenCalledWith("crq_1", "spc_1", signal);
-    expect(decision.kind).toBe("accept");
-    expect(decision.content).toHaveLength(2);
-    const appended = JSON.parse((decision.content?.[1] as { text: string }).text);
-    expect(appended).toMatchObject({
-      type: "change-request",
-      typeId: "crq_1",
-      autoPreview: true,
-    });
-  });
-
   it("rejects with the original cause when the initial Cloud connection fails", async () => {
     const { ctx } = createHostCtx();
     const credentials = { readRecord: vi.fn(), modifyRecord: vi.fn(), deleteRecord: vi.fn() };
@@ -220,7 +160,6 @@ describe("host plugin wiring", () => {
     vi.mocked(connectRemoteMcp).mockReturnValueOnce({
       ready: Promise.resolve({ error: connectError }),
       dispose: vi.fn().mockResolvedValue(undefined),
-      createChangeRequestEmbedLink: vi.fn(),
     });
 
     let caught: unknown;

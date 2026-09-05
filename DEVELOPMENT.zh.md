@@ -122,8 +122,6 @@ flowchart LR
 
 在 `node_create` 返回 canonical Node 后，Host 会尽力生成一个权威的 embed 链接并附加到 MCP 结果中。人类合并一个创建 Node 的 ChangeRequest 之后，Inspector 通过同源 Host 端点执行相同的步骤，并自动打开该 embed。预览失败永远不会改变一次本来成功的 MCP 调用或合并结果。受管理的本地 Inspector 读取与审阅动作使用一份范围狭窄的同源代理白名单；面向 Agent 的 MCP 连接始终被限制在 `changeRequest`。
 
-Cloud 模式没有本地受信 Host REST 步骤。识别到创建/查询工具返回一个待处理 ChangeRequest 后，`tools/post-execute` hook 会通过同一条已鉴权 MCP Client 调用 `embed_links_create`，保留原调用的 `targetSpaceId` 与取消信号，把权威 `{ url, iframeUrl }` 结果附加到返回值并自动打开。预览生成失败只记录警告，原本成功的工具结果保持不变。显式 `embed_links_create` 结果以及工具结果中的同类链接也会在 Inspector 中打开。Client 在渲染前会严格校验链接 origin 是否与 Cloud `baseUrl` 一致，并且绝不会回退到未鉴权 REST 请求——审阅、合并、关闭、实时刷新以及 Base/AirApp 内嵌预览仍仅支持本地模式。
-
 ## 完整配置参考
 
 ```yaml
@@ -218,7 +216,6 @@ Profile patch 会在包内 `dsh.bundle.patch` 之后应用。它会替换匹配 
 | 错误复用其他本地服务 | `/api/health` 必须返回 `service: busabase` 与 `status: ok` |
 | 本地 MCP 选错工作区 | loopback 连接固定发送 `x-busabase-space: local` |
 | iframe 泄露凭据 | 只使用 canonical URL 或服务端生成的 embed URL，不拼接 API Key |
-| Agent 把预览权限扩大为通用分享 | `embedLinks.create` 仅允许 `changeRequest` 凭据进入领域校验并生成 ChangeRequest 预览；Node/Record capability 仍要求 `manage`，list/revoke 在传输层也仍是 `manage` |
 | 实时连接中断 | 自动回退到有界、仅可见页面轮询 |
 | 远程 OAuth token 泄露到配置、日志或浏览器 | token 只保存在 Host 的 `ctx.credentials` grant record；远程 Inspector 不接收 token，并禁用 review、merge、close、refresh、实时订阅和 Base/AirApp iframe，而不是回退到未认证 REST 请求 |
 
