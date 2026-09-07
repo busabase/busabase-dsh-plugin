@@ -19,10 +19,10 @@
 ### 1. 安装插件
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add --allow-build=@busabase/dsh-plugin @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-安装包会自动激活 Host 和 Web 两端。`--allow-build` 只允许此包发布的 `preinstall`，用于连接包中已经包含的 Skills。安装验证、构建授权恢复、更新和删除步骤见 [安装与管理 npm Bundle](DEVELOPMENT.zh.md#安装与管理-npm-bundle)。
+安装包会自动激活 Host 和 Web 两端。经过审阅的 Skills 已经包含在 npm 包中，因此安装不需要授权生命周期脚本。安装验证、更新、删除和旧版本说明见 [安装与管理 npm Bundle](DEVELOPMENT.zh.md#安装与管理-npm-bundle)。
 
 ### 2. 选择本地或 Cloud
 

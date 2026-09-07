@@ -19,10 +19,10 @@ Local Busabase does not need to be running before installation. In Local mode, t
 ### 1. Install the plugin
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add --allow-build=@busabase/dsh-plugin @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-The package activates both the Host and Web sides automatically. `--allow-build` permits only this package's published `preinstall`, which links the Skills already included in the package. For installation verification, ignored-build recovery, updates, and removal, see [Install and manage the npm bundle](DEVELOPMENT.md#install-and-manage-the-npm-bundle).
+The package activates both the Host and Web sides automatically. Its reviewed Skills are already included in the npm package, so installation does not need lifecycle-script approval. For installation verification, updates, removal, and notes about older releases, see [Install and manage the npm bundle](DEVELOPMENT.md#install-and-manage-the-npm-bundle).
 
 ### 2. Choose Local or Cloud
 
