@@ -6,6 +6,12 @@ English | [中文](README.zh.md)
 
 It gives the Agent durable context beyond one chat without giving it permission to silently rewrite your source of truth.
 
+## See it in action
+
+Watch DeepSeek Harness use the plugin to create a CRM AirApp, submit changes for review, and open the result in Busabase.
+
+[Watch the muted guide video](./assets/busabase-dsh-plugin-guide.mp4)
+
 ## Quick start
 
 ### Requirements
