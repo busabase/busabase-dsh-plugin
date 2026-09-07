@@ -11,10 +11,10 @@
 ### 安装到 Web profile
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add --allow-build=@busabase/dsh-plugin @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-如果已全局安装 DSH，请用 `dsh` 替换 `npx @deepseek-ai/dsh`。`--allow-build=@busabase/dsh-plugin` 只允许此包发布的 `preinstall`；不要使用允许所有依赖脚本的全局设置。
+如果已全局安装 DSH，请用 `dsh` 替换 `npx @deepseek-ai/dsh`。发布包已经包含实体化的 Skills，并且没有安装生命周期脚本，因此不需要构建授权。
 
 命令会在需要时初始化 `$DSH_HOME/profiles/web`，通过 pnpm 安装依赖，并将包加入 `dsh.profile.bundles`。启动前请验证两种状态：
 
@@ -25,16 +25,16 @@ npx @deepseek-ai/dsh --profile web --dump-config
 
 `plugin list` 必须显示 `@busabase/dsh-plugin`。`--dump-config` 必须显示包含 `id: busabase` 的 `# == @busabase/dsh-plugin` 配置层；第二项验证的是 Bundle 对账，而不只是依赖安装。
 
-### 从构建授权失败中恢复
+### 从曾经需要构建授权的版本升级
 
-如果之前没有传入 `--allow-build`，并遇到 `ERR_PNPM_IGNORED_BUILDS`，请只授权此包并重新执行 `add`。失败的 pnpm 操作可能已经写入依赖，却没有加入 Bundle 层：
+旧版本曾声明 `preinstall`，需要传入 `--allow-build=@busabase/dsh-plugin`。如果旧版本安装遇到 `ERR_PNPM_IGNORED_BUILDS`，请先更新到当前版本，再重新执行 `add`；当前包不再需要构建授权：
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web approve-builds @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web update @busabase/dsh-plugin
 npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-构建授权保存在 `$DSH_HOME/profiles/web/pnpm-workspace.yaml`。机器专用 Cordis 覆盖应写入 `$DSH_HOME/profiles/web/cordis.patch.yml`，它在包 Bundle 之后应用。配置行会整段替换 `config`，而不是深度合并，因此请保留所有需要的非默认值。
+`$DSH_HOME/profiles/web/pnpm-workspace.yaml` 中已有的授权记录不会造成影响；确认所有已安装版本都完成更新后，可以删除该记录。机器专用 Cordis 覆盖应写入 `$DSH_HOME/profiles/web/cordis.patch.yml`，它在包 Bundle 之后应用。配置行会整段替换 `config`，而不是深度合并，因此请保留所有需要的非默认值。
 
 ### 更新或删除 Bundle
 
@@ -58,13 +58,13 @@ pnpm install
 pnpm build
 ```
 
-仓库把规范 Skill 放在已忽略的 `.skills-source/` checkout 中。安装时，链接脚本会使用这个固定版本
-的 checkout 创建构建所需的两个本地 `skills/` 入口。
+仓库把规范 Skill 放在已忽略的 `.skills-source/` checkout 中。构建或测试时，链接脚本会使用这个固定版本
+的 checkout 创建打包所需的两个本地 `skills/` 入口。
 
 再把本地包加入目标 DSH profile：
 
 ```bash
-pnpm exec dsh plugin --profile web add --allow-build=@busabase/dsh-plugin /absolute/path/to/busabase-dsh-plugin
+pnpm exec dsh plugin --profile web add /absolute/path/to/busabase-dsh-plugin
 ```
 
 `dsh.bundle.patch` 同样会在本地路径安装时生效，因此这条路径也不需要额外手写 Cordis 配置。
@@ -244,12 +244,12 @@ pnpm pack:dry-run
 
 ### 随包 Skills
 
-在源码开发环境执行 `pnpm install` 时，安装脚本会把 `skills/busabase` 和
+在源码开发环境执行 `pnpm build` 或 `pnpm test` 时，链接脚本会把 `skills/busabase` 和
 `skills/busabase-app-creator` 分别链接到固定版本 Skills checkout 中的规范定义。脚本可重复执行，
 只链接这两个 Skill，并拒绝覆盖意外存在的文件，因此 Skill 更新只需维护一份可审阅的源文件。
 
-独立 CI 与发布 workflow 会把 `busabase/skills` checkout 到已忽略的 `.skills-source/`，同一个
-preinstall 脚本会识别该布局。源码开发者使用上方「从源码开发插件」章节中的对应 clone 命令。经过 review 的 Skill
+独立 CI 与发布 workflow 会把 `busabase/skills` checkout 到已忽略的 `.skills-source/`，构建脚本会识别该布局。
+源码开发者使用上方「从源码开发插件」章节中的对应 clone 命令。经过 review 的 Skill
 commit 会记录在 `package.json`，因此 CI 和发布流程实体化的是完全相同的内容。已发布的 npm 包已经实体化
 Skills，不会在安装时拉取仓库。
 

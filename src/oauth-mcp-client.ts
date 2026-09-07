@@ -515,7 +515,7 @@ export function connectRemoteMcp(
 
       const createClientAndTransport = () => {
         const nextClient = new Client(
-          { name: "busabase-dsh-plugin", version: "0.1.4" },
+          { name: "busabase-dsh-plugin", version: "0.1.5" },
           { capabilities: {} },
         );
         const transport = new StreamableHTTPClientTransport(new URL(resourceUrl), {

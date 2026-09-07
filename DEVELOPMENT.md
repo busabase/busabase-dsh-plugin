@@ -11,10 +11,10 @@ Use a current DeepSeek Harness release compatible with this package's peer depen
 ### Install into the Web profile
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web add --allow-build=@busabase/dsh-plugin @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-With a global DSH installation, replace `npx @deepseek-ai/dsh` with `dsh`. `--allow-build=@busabase/dsh-plugin` permits only this package's published `preinstall`; do not use a global allow-all build setting.
+With a global DSH installation, replace `npx @deepseek-ai/dsh` with `dsh`. The published package contains materialized Skills and has no install lifecycle script, so no build approval is required.
 
 The command initializes `$DSH_HOME/profiles/web` when needed, installs the dependency through pnpm, and appends the package to `dsh.profile.bundles`. Verify both states before booting:
 
@@ -25,16 +25,16 @@ npx @deepseek-ai/dsh --profile web --dump-config
 
 `plugin list` must show `@busabase/dsh-plugin`. `--dump-config` must show a `# == @busabase/dsh-plugin` layer containing `id: busabase`; this proves Bundle reconciliation, not merely dependency installation.
 
-### Recover from an ignored build
+### Upgrade from a release that required build approval
 
-If an earlier `add` without `--allow-build` failed with `ERR_PNPM_IGNORED_BUILDS`, approve only this package and rerun `add`. A failed pnpm operation can leave the dependency installed without adding the Bundle layer:
+Older releases declared a `preinstall` script and required `--allow-build=@busabase/dsh-plugin`. If an old installation failed with `ERR_PNPM_IGNORED_BUILDS`, update to the current release and rerun `add`; the current package does not need build approval:
 
 ```bash
-npx @deepseek-ai/dsh plugin --profile web approve-builds @busabase/dsh-plugin
+npx @deepseek-ai/dsh plugin --profile web update @busabase/dsh-plugin
 npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
-Build policy is stored in `$DSH_HOME/profiles/web/pnpm-workspace.yaml`. Machine-specific Cordis overrides belong in `$DSH_HOME/profiles/web/cordis.patch.yml`, which applies after the package Bundle. A row override replaces its complete `config` instead of deep-merging it, so retain every non-default value you need.
+An existing approval entry in `$DSH_HOME/profiles/web/pnpm-workspace.yaml` is harmless and may be removed after every installed version has been updated. Machine-specific Cordis overrides belong in `$DSH_HOME/profiles/web/cordis.patch.yml`, which applies after the package Bundle. A row override replaces its complete `config` instead of deep-merging it, so retain every non-default value you need.
 
 ### Update or remove the Bundle
 
@@ -58,13 +58,13 @@ pnpm install
 pnpm build
 ```
 
-The repository keeps the canonical Skills in the ignored `.skills-source/` checkout. During installation,
-the link script uses that pinned checkout to create the two local `skills/` entries required by the build.
+The repository keeps the canonical Skills in the ignored `.skills-source/` checkout. During build or test,
+the link script uses that pinned checkout to create the two local `skills/` entries required by the package.
 
 Then add the local package to the target DSH profile:
 
 ```bash
-pnpm exec dsh plugin --profile web add --allow-build=@busabase/dsh-plugin /absolute/path/to/busabase-dsh-plugin
+pnpm exec dsh plugin --profile web add /absolute/path/to/busabase-dsh-plugin
 ```
 
 `dsh.bundle.patch` also applies when installing from a local path, so this route needs no extra hand-written Cordis config either.
@@ -244,13 +244,13 @@ pnpm pack:dry-run
 
 ### Bundled Skills
 
-During source development, `pnpm install` links `skills/busabase` and `skills/busabase-app-creator` to
+During source development, `pnpm build` and `pnpm test` link `skills/busabase` and `skills/busabase-app-creator` to
 their canonical definitions in the pinned Skills checkout. The link script is idempotent, links
 only those two Skills, and refuses to replace unexpected files, so Skill updates have one reviewed source
 of truth instead of a second committed copy in this package.
 
 The standalone CI and release workflows check out `busabase/skills` under ignored `.skills-source/`; the
-same preinstall script recognizes that layout. Source developers use the matching clone command in the
+build script recognizes that layout. Source developers use the matching clone command in the
 "Develop the plugin from source" section above. The exact reviewed Skills commit is recorded in `package.json`, so CI and release
 materialize identical content. Published npm installs are already materialized and do not fetch a repository.
 
