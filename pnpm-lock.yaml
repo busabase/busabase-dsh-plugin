@@ -21,8 +21,8 @@ importers:
         specifier: 1.26.0
         version: 1.26.0(zod@4.4.3)
       busabase-sdk:
-        specifier: 0.41.0
-        version: 0.41.0(@opentelemetry/api@1.9.1)
+        specifier: 0.60.0
+        version: 0.60.0(@opentelemetry/api@1.9.1)
       open:
         specifier: 11.0.1
         version: 11.0.1
@@ -3467,8 +3467,8 @@ packages:
     resolution: {integrity: sha512-tjwM5exMg6BGRI+kNmTntNsvdZS1X8BFYS6tnJ2hdH0kVxM6/eVZ2xy+FqStSWvYmtfFMDLIxurorHwDKfDz5Q==}
     engines: {node: '>=18'}
 
-  busabase-sdk@0.41.0:
-    resolution: {integrity: sha512-L2pQUYV71zYQzNYZy+vrRm2ZupjPKDonnB3uJGIN+juKs8iTlQDy8N5mmwKxNNyZWuBRXUYmC6m4TGwLsBYPOA==}
+  busabase-sdk@0.60.0:
+    resolution: {integrity: sha512-qM7pKL7JNMhNkY5wjEOAN5uMIhqU10QADnXjs9TVA9Oz06cDTA2usNlniO2DWXSvwBcqj9TiG691D9tSN9qmRQ==}
     engines: {node: '>=24.18.0'}
 
   bytes@3.1.2:
@@ -8504,7 +8504,7 @@ snapshots:
     dependencies:
       run-applescript: 7.1.0
 
-  busabase-sdk@0.41.0(@opentelemetry/api@1.9.1):
+  busabase-sdk@0.60.0(@opentelemetry/api@1.9.1):
     dependencies:
       '@orpc/client': 1.15.0(@opentelemetry/api@1.9.1)
       '@orpc/contract': 1.15.0(@opentelemetry/api@1.9.1)

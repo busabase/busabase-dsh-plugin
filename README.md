@@ -10,7 +10,7 @@ It gives the Agent durable context beyond one chat without giving it permission 
 
 Watch DeepSeek Harness use the plugin to create a CRM AirApp, submit changes for review, and open the result in Busabase.
 
-[Watch the muted guide video](./assets/busabase-dsh-plugin-guide.mp4)
+[![Watch the guide video](https://img.youtube.com/vi/bDWM4CCvlVw/maxresdefault.jpg)](https://youtu.be/bDWM4CCvlVw)
 
 ## Quick start
 
