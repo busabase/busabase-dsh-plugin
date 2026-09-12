@@ -6,6 +6,12 @@
 
 它让 Agent 获得超越单次对话的长期上下文，但不会让 Agent 静默改写你的事实来源。
 
+## 实际效果
+
+观看 DeepSeek Harness 使用插件创建 CRM AirApp、提交变更供审阅，并在 Busabase 中打开结果。
+
+[观看静音指南视频](./assets/busabase-dsh-plugin-guide.mp4)
+
 ## 快速开始
 
 ### 环境要求

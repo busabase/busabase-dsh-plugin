@@ -1,6 +1,6 @@
 {
   "name": "@busabase/dsh-plugin",
-  "version": "0.1.6",
+  "version": "0.1.8",
   "description": "Busabase MCP, cards, and live inspector for DeepSeek Harness",
   "license": "MIT",
   "homepage": "https://github.com/busabase/busabase-dsh-plugin#readme",
@@ -48,7 +48,7 @@
   },
   "busabaseSkills": {
     "repository": "https://github.com/busabase/skills.git",
-    "ref": "8ab0183862e186b7c7c70fca8aa941ff0b3b6166"
+    "ref": "11078fc3adddabee78de8ad303fccd717d461dec"
   },
   "dsh": {
     "client": {
@@ -80,7 +80,7 @@
     "@deepseek-ai/dsh-skill-filesystem": "0.1.1-rc.2",
     "@deepseek-ai/schemastery": "^3.18.1",
     "@modelcontextprotocol/sdk": "1.26.0",
-    "busabase-sdk": "0.41.0",
+    "busabase-sdk": "0.60.0",
     "open": "11.0.1"
   },
   "peerDependencies": {

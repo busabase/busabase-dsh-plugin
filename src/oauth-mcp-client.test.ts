@@ -1,5 +1,6 @@
 // @vitest-environment node
 
+import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
 import {
   type CredentialKey,
@@ -82,6 +83,7 @@ const {
   busabaseOAuthCredentialKey,
   connectRemoteMcp,
   DshCredentialOAuthClientProvider,
+  PLUGIN_VERSION,
   publicToolName,
 } = await import("./oauth-mcp-client.js");
 
@@ -849,3 +851,18 @@ interface RemoteToolFixture {
   description: string;
   inputSchema: { type: "object" };
 }
+
+/**
+ * The manifest and the version this plugin announces over MCP had already
+ * drifted — `package.json` said 0.1.1, this module said 0.1.0, and npm had
+ * shipped 0.1.5 — because they are hand-edited in different files. Pinning them
+ * together means the next bump cannot forget one.
+ */
+describe("plugin version", () => {
+  it("announces the version the manifest declares", async () => {
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { version: string };
+    expect(PLUGIN_VERSION).toBe(manifest.version);
+  });
+});

@@ -24,6 +24,17 @@ import {
   type EmbedLinksClient,
 } from "./preview-link.js";
 
+/**
+ * The version this plugin reports to an MCP server as its `clientInfo`.
+ *
+ * Kept as a literal rather than read from `package.json`: this file is bundled
+ * by tsdown, and a runtime read of a path relative to the source would not
+ * survive that. `oauth-mcp-client.test.ts` asserts it equals the manifest's
+ * `version`, so the pair cannot drift silently — which it already had, the
+ * manifest saying 0.1.1 while this said 0.1.0 and npm had shipped 0.1.5.
+ */
+export const PLUGIN_VERSION = "0.1.8";
+
 // The OAuth flow follows the MIT-licensed MCP TypeScript SDK example and the
 // architecture proven by springbrand-lab/dsh-oauth-mcp-client. DSH's built-in
 // MCP bridge has no OAuth provider hook, so remote mode owns its transport and
@@ -515,7 +526,7 @@ export function connectRemoteMcp(
 
       const createClientAndTransport = () => {
         const nextClient = new Client(
-          { name: "busabase-dsh-plugin", version: "0.1.6" },
+          { name: "busabase-dsh-plugin", version: PLUGIN_VERSION },
           { capabilities: {} },
         );
         const transport = new StreamableHTTPClientTransport(new URL(resourceUrl), {
