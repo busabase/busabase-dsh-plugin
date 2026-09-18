@@ -865,4 +865,26 @@ describe("plugin version", () => {
     ) as { version: string };
     expect(PLUGIN_VERSION).toBe(manifest.version);
   });
+
+  // The SDK version is written out rather than resolved through the workspace:
+  // this package ships its own .d.ts, so pulling the sibling's source into the
+  // program would break rootDir, and its published exports point at a dist that
+  // a fresh checkout has not built. A written-down version is therefore the only
+  // workable shape — but it used to rot silently, chased by hand three times
+  // (0.50.0, 0.52.1, 0.60.0) while 0.41.0 sat on npm in between. This fails the
+  // build the moment the two disagree, which is the part that was missing.
+  it("pins the SDK version the workspace actually builds", async () => {
+    // Only meaningful where the SDK is a sibling. In the standalone repository
+    // this package publishes from there is nothing to compare against, and the
+    // pin has already been fixed by whatever produced that checkout.
+    const sibling = new URL("../../busabase-sdk/package.json", import.meta.url);
+    const sdkManifest = await readFile(sibling, "utf8").catch(() => null);
+    if (sdkManifest === null) return;
+
+    const manifest = JSON.parse(
+      await readFile(new URL("../package.json", import.meta.url), "utf8"),
+    ) as { dependencies: Record<string, string> };
+    const sdk = JSON.parse(sdkManifest) as { version: string };
+    expect(manifest.dependencies["busabase-sdk"]).toBe(sdk.version);
+  });
 });

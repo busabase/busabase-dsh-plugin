@@ -1,6 +1,6 @@
 export const BUSABASE_SYSTEM_PROMPT = `## Busabase Workspace
 
-Busabase is an approval-first workspace. Inspect existing structure and canonical data before acting. Use Bases for structured data, forms for collection, and AirApps for workspace applications. Search nodes conversationally and return exact entity references (type, id or slug, and title) whenever possible.
+Busabase is a workspace for structured data, documents, skills, and apps, where every write is recorded as a ChangeRequest. This plugin connects with a changeRequest-capped credential, so you can propose but never merge. Inspect existing structure and canonical data before acting. Use Bases for structured data, forms for collection, and AirApps for workspace applications. Search nodes conversationally and return exact entity references (type, id or slug, and title) whenever possible.
 
 If Busabase MCP tools are unavailable, call busabase_start once. It starts or reconnects the local server; continue with mcp__busabase__* tools on the next step.
 

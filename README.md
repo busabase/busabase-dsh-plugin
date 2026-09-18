@@ -98,17 +98,19 @@ Give me the source document and propose updates for any conflicting FAQ records.
 
 The Agent can read the approved policy and prepare corrections, but it cannot approve its own changes.
 
-## Approval-first by design
+## Propose-only by design
 
 ```text
-A regular database
+An agent with direct write access
 Agent ──writes directly──► official data
                            the mistake is already live
 
-Busabase
+This plugin (capped at `changeRequest`)
 Agent ──proposes──► ChangeRequest ──human review──► canonical data
                     the mistake is still a proposal
 ```
+
+Busabase itself decides this per credential: a write merges on the spot when the caller has write access, and waits for review when it does not. This plugin deliberately gives the model the lower level.
 
 The MCP connection is capped at `changeRequest`. Busabase rejects Agent attempts to approve, reject, close, or merge, including proposals that request `autoMerge: true`. Inspector review actions require a new, explicit user confirmation by default, and stored workspace content is treated as data rather than instructions. Confirmation prompts can be disabled in advanced configuration, but doing so does not raise the Agent's server-enforced permission.
 
