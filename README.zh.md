@@ -98,17 +98,19 @@ Busabase 负责保存已批准的知识和结构化数据
 
 Agent 可以读取已批准的策略并准备修订，但不能批准自己的修改。
 
-## Approval-first 工作方式
+## 只提议、不合并的设计
 
 ```text
-普通数据库
+有直接写权限的 Agent
 Agent ──直接写入──► 正式数据
                     错误已经生效
 
-Busabase
+本插件（权限封顶在 changeRequest）
 Agent ──提出修改──► ChangeRequest ──人类审阅──► 正式数据
                     错误仍只是提案
 ```
+
+这件事 Busabase 是按凭据逐个决定的：调用方有写权限就当场合并，没有才等人审阅。本插件是刻意把模型压到较低的那一档。
 
 MCP 连接权限固定在 `changeRequest`。Busabase 会拒绝 Agent 发起的批准、拒绝、关闭和合并操作，也不会让 `autoMerge: true` 绕过审阅。Inspector 中的审阅动作默认要求用户重新明确确认，工作区里存储的内容也只会被视为数据，而不是新的指令。高级配置可以关闭确认提示，但这不会提高服务端强制执行的 Agent 权限。
 
