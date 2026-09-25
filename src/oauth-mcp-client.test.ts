@@ -259,7 +259,14 @@ describe("DshCredentialOAuthClientProvider", () => {
   });
 });
 
-describe("connectRemoteMcp", () => {
+// The OAuth cases here drive a real loopback HTTP server through a full
+// authorization round trip, so they cost seconds where the rest of this file
+// costs milliseconds (~2.6s each, against a 21-52ms median). Vitest's default
+// 5s budget leaves them almost no headroom: on a loaded machine they tip over
+// and the file goes red at random — 0 to 3 failures across identical runs.
+// The work is genuinely I/O-bound, so give the block room rather than let load
+// decide whether the suite passes.
+describe("connectRemoteMcp", { timeout: 20_000 }, () => {
   const config = {
     serverName: "busabase",
     mcpUrl: "https://busabase.example/api/mcp",

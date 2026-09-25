@@ -33,7 +33,7 @@ import {
  * `version`, so the pair cannot drift silently — which it already had, the
  * manifest saying 0.1.1 while this said 0.1.0 and npm had shipped 0.1.5.
  */
-export const PLUGIN_VERSION = "0.1.12";
+export const PLUGIN_VERSION = "0.1.13";
 
 // The OAuth flow follows the MIT-licensed MCP TypeScript SDK example and the
 // architecture proven by springbrand-lab/dsh-oauth-mcp-client. DSH's built-in
