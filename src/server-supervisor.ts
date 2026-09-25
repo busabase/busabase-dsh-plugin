@@ -7,6 +7,34 @@ const PROBE_TIMEOUT_MS = 2_000;
 const PROBE_INTERVAL_MS = 200;
 const STDERR_LIMIT = 4_000;
 
+/**
+ * Windows refuses to launch a `.cmd`/`.bat` through `spawn` without a shell:
+ * since Node's April 2024 security fix those launchers are not executables, and
+ * `shell: false` rejects them with EINVAL. The default server command IS one
+ * (`npm.cmd`), so local mode could never start a server on Windows at all.
+ *
+ * `shell: true` is the documented remedy, but Node then joins argv with plain
+ * spaces and quotes nothing — and `--data C:\\Users\\John Smith\\bb` would split
+ * into two arguments. So we build the command line ourselves and pass an empty
+ * argv, keeping the quoting under our control rather than cmd.exe's guesswork.
+ *
+ * POSIX is untouched: it keeps `shell: false` and a real argv array, so no
+ * argument there ever passes through a shell.
+ */
+export function needsWindowsShell(platform: NodeJS.Platform, command: string): boolean {
+  return platform === "win32" && /\.(cmd|bat)$/i.test(command.trim());
+}
+
+/** Quote one token for `cmd.exe`, which understands double quotes only. */
+function quoteForCmd(token: string): string {
+  if (token.length > 0 && !/[\s"^&|<>()]/.test(token)) return token;
+  return `"${token.replace(/"/g, '""')}"`;
+}
+
+export function buildWindowsShellCommand(command: string, args: readonly string[]): string {
+  return [command, ...args].map(quoteForCmd).join(" ");
+}
+
 export type BusabaseServerPhase = "stopped" | "starting" | "running" | "failed";
 
 export interface BusabaseServerStatus {
@@ -133,7 +161,13 @@ export class BusabaseServerSupervisor {
         detached: this.platform !== "win32",
         windowsHide: true,
       };
-      child = this.spawnImpl(this.config.server.command, this.config.server.args, options);
+      const { command, args } = this.config.server;
+      child = needsWindowsShell(this.platform, command)
+        ? this.spawnImpl(buildWindowsShellCommand(command, args), [], {
+            ...options,
+            shell: true,
+          })
+        : this.spawnImpl(command, args, options);
     } catch (error) {
       return this.fail(`failed to launch Busabase: ${errorMessage(error)}`);
     }
