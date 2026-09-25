@@ -6,4 +6,4 @@ allowBuilds:
   node-pty: true
   protobufjs: true
 minimumReleaseAgeExclude:
-  - busabase-sdk@0.18.0 || 0.20.0 || 0.30.0 || 0.30.1
+  - busabase-sdk@0.18.0 || 0.20.0 || 0.30.0 || 0.30.1 || 0.80.0

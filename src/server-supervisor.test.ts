@@ -3,7 +3,11 @@ import { EventEmitter } from "node:events";
 import { PassThrough } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
 import { resolveConfig } from "./config.js";
-import { BusabaseServerSupervisor } from "./server-supervisor.js";
+import {
+  BusabaseServerSupervisor,
+  buildWindowsShellCommand,
+  needsWindowsShell,
+} from "./server-supervisor.js";
 
 function response(body: unknown, ok = true): Response {
   return { ok, json: vi.fn().mockResolvedValue(body) } as unknown as Response;
@@ -200,5 +204,87 @@ describe("BusabaseServerSupervisor", () => {
       reason: expect.stringMatching(/external/),
     });
     expect(spawn).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * Local mode was completely dead on Windows: the default server command is
+ * `npm.cmd`, and since Node's April 2024 security fix `spawn` refuses a
+ * `.cmd`/`.bat` under `shell: false` with EINVAL — so `busabase_start` never
+ * got past launch. `platform` and `spawn` are both injectable, so the Windows
+ * branch is exercised here from any OS.
+ */
+describe("Windows launcher handling", () => {
+  it("only asks for a shell where one is actually required", () => {
+    expect(needsWindowsShell("win32", "npm.cmd")).toBe(true);
+    expect(needsWindowsShell("win32", "NPM.CMD")).toBe(true);
+    expect(needsWindowsShell("win32", "pnpm.bat")).toBe(true);
+    // A real executable on Windows still goes through the safe argv path.
+    expect(needsWindowsShell("win32", "node.exe")).toBe(false);
+    expect(needsWindowsShell("win32", "node")).toBe(false);
+    // POSIX never takes the shell path, whatever the command is called.
+    expect(needsWindowsShell("linux", "npm.cmd")).toBe(false);
+    expect(needsWindowsShell("darwin", "npm")).toBe(false);
+  });
+
+  it("quotes a data dir containing spaces instead of letting cmd.exe split it", () => {
+    const line = buildWindowsShellCommand("npm.cmd", [
+      "exec",
+      "--package",
+      "busabase@latest",
+      "--data",
+      String.raw`C:\Users\John Smith\busabase`,
+    ]);
+    // The path survives as ONE argument...
+    expect(line).toContain(String.raw`"C:\Users\John Smith\busabase"`);
+    // ...while tokens that need no quoting stay bare.
+    expect(line.startsWith("npm.cmd exec --package busabase@latest --data ")).toBe(true);
+  });
+
+  it("escapes an embedded double quote rather than ending the argument early", () => {
+    expect(buildWindowsShellCommand("npm.cmd", ['a"b'])).toBe('npm.cmd "a""b"');
+  });
+
+  it("launches npm.cmd through a shell as a single quoted command line", async () => {
+    const child = childProcess();
+    const spawn = vi.fn(() => child);
+    const supervisor = new BusabaseServerSupervisor(
+      resolveConfig({ server: { command: "npm.cmd", dataDir: String.raw`C:\bb data` } }),
+      {
+        platform: "win32",
+        killWindowsTree: vi.fn().mockResolvedValue(undefined),
+        fetch: vi.fn().mockRejectedValue(new Error("offline")),
+        spawn: spawn as never,
+      },
+    );
+    void supervisor.ensure();
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalled());
+
+    const [command, args, options] = spawn.mock.calls[0] as [string, string[], { shell?: boolean }];
+    expect(options.shell).toBe(true);
+    // argv must be empty — everything is in the command line we quoted ourselves.
+    expect(args).toEqual([]);
+    expect(command.startsWith("npm.cmd ")).toBe(true);
+    expect(command).toContain(String.raw`"C:\bb data"`);
+    await supervisor.dispose?.();
+  });
+
+  it("leaves POSIX on a real argv array with no shell", async () => {
+    const child = childProcess();
+    const spawn = vi.fn(() => child);
+    const supervisor = new BusabaseServerSupervisor(resolveConfig(), {
+      platform: "linux",
+      fetch: vi.fn().mockRejectedValue(new Error("offline")),
+      spawn: spawn as never,
+    });
+    void supervisor.ensure();
+    await vi.waitFor(() => expect(spawn).toHaveBeenCalled());
+
+    const [command, args, options] = spawn.mock.calls[0] as [string, string[], { shell?: boolean }];
+    expect(command).toBe("npm");
+    expect(args).toContain("exec");
+    expect(args.length).toBeGreaterThan(1);
+    expect(options.shell).toBeUndefined();
+    await supervisor.dispose?.();
   });
 });
