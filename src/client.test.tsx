@@ -1,11 +1,13 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
-import type { SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apply, busabaseRefFromLink, extractToolPayload } from "./client.js";
 import { BusabaseInspectorStore } from "./client-store.js";
+
+type SessionId = Parameters<ISessions["binding"]>[0];
 
 const effectDisposers: Array<() => void> = [];
 
@@ -14,7 +16,7 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
     config: Record<string, unknown>;
     component: React.ComponentType<any>;
   }> = [];
-  const layout = { openDetails: vi.fn(), closeDetails: vi.fn() };
+  const layout = { openRightbar: vi.fn(), closeRightbar: vi.fn() };
   const prompt = vi.fn(async () => ({ ok: true, value: { accepted: true } }));
   const binding = vi.fn((sessionId: SessionId) => ({ sessionId, session: { prompt } }));
   const ctx = {
@@ -39,7 +41,7 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
   const card = (key: string) =>
     registrations.find(({ config: registration }) => registration.key === key)!.component;
   const Details = registrations.find(
-    ({ config: registration }) => registration.name === "details",
+    ({ config: registration }) => registration.name === "rightbar",
   )!.component;
   return { registrations, layout, prompt, binding, card, Details };
 }
@@ -105,7 +107,7 @@ describe("client plugin", () => {
   });
   it("registers keyed Busabase cards and opens the right panel on selection", () => {
     const { registrations, layout, card } = setup();
-    expect(registrations.find(({ config }) => config.name === "details")?.config.priority).toBe(
+    expect(registrations.find(({ config }) => config.name === "rightbar")?.config.priority).toBe(
       -10,
     );
     const Card = card("mcp__busabase__bases_get");
@@ -123,7 +125,7 @@ describe("client plugin", () => {
       />,
     );
     fireEvent.click(screen.getByRole("button", { name: /CRM/i }));
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
     expect(
       registrations.filter(
         ({ config }) =>
@@ -176,7 +178,7 @@ describe("client plugin", () => {
       </>,
     );
 
-    await waitFor(() => expect(layout.openDetails).toHaveBeenCalledOnce());
+    await waitFor(() => expect(layout.openRightbar).toHaveBeenCalledWith(true, false));
     expect(screen.getByTitle("Sales Console embed").getAttribute("src")).toBe(
       "http://localhost:15419/embed/emb_1?token=secret&view=iframe",
     );
@@ -215,7 +217,7 @@ describe("client plugin", () => {
     expect(screen.getByRole("heading", { level: 2, name: "Docs" })).toBeTruthy();
     expect(screen.queryByText("Busabase Inspector")).toBeNull();
     fireEvent.click(screen.getByRole("button", { name: "Close details" }));
-    expect(layout.closeDetails).toHaveBeenCalledOnce();
+    expect(layout.closeRightbar).toHaveBeenCalledOnce();
   });
 
   it("opens a conversation embed link in the right panel using the iframe view", () => {
@@ -230,7 +232,7 @@ describe("client plugin", () => {
     );
 
     expect(fireEvent.click(screen.getByRole("link"))).toBe(false);
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
     expect(
       screen.getByRole("heading", { name: "Open DSH AirApp E2E embedding link" }),
     ).toBeTruthy();
@@ -297,7 +299,7 @@ describe("client plugin", () => {
       </>,
     );
 
-    await waitFor(() => expect(layout.openDetails).toHaveBeenCalledOnce());
+    await waitFor(() => expect(layout.openRightbar).toHaveBeenCalledWith(true, false));
     expect(document.querySelector(".bb-change-request-frame")?.getAttribute("src")).toBe(
       "http://localhost:15419/embed/emb_cr_1?token=secret&view=iframe",
     );
@@ -334,7 +336,7 @@ describe("client plugin", () => {
     );
 
     await Promise.resolve();
-    expect(layout.openDetails).not.toHaveBeenCalled();
+    expect(layout.openRightbar).not.toHaveBeenCalled();
   });
 
   it("does not render a forged external preview from an allowlisted tool", async () => {
@@ -375,7 +377,7 @@ describe("client plugin", () => {
       </>,
     );
 
-    await waitFor(() => expect(layout.openDetails).toHaveBeenCalledOnce());
+    await waitFor(() => expect(layout.openRightbar).toHaveBeenCalledWith(true, false));
     expect(document.querySelector(".bb-change-request-frame")).toBeNull();
     expect(
       screen.getByText("Rich Change Request preview is unavailable for this Busabase instance."),
@@ -445,7 +447,7 @@ describe("client plugin", () => {
         "http://localhost:15419/embed/emb_upgrade?token=secret&view=iframe",
       ),
     );
-    expect(layout.openDetails).toHaveBeenCalledTimes(2);
+    expect(layout.openRightbar).toHaveBeenCalledTimes(2);
   });
 
   it("does not re-open the panel when the same ChangeRequest preview is already selected", async () => {
@@ -479,7 +481,7 @@ describe("client plugin", () => {
         <Details />
       </>,
     );
-    await waitFor(() => expect(layout.openDetails).toHaveBeenCalledOnce());
+    await waitFor(() => expect(layout.openRightbar).toHaveBeenCalledWith(true, false));
     view.rerender(
       <>
         <Card callId="call_2" toolName="mcp__busabase__change_requests_get" block={block} />
@@ -487,7 +489,7 @@ describe("client plugin", () => {
       </>,
     );
     await Promise.resolve();
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
   });
 
   it("opens a dashboard AirApp link as node details with a fullscreen preview", () => {
@@ -502,7 +504,7 @@ describe("client plugin", () => {
     );
 
     expect(fireEvent.click(screen.getByRole("link"))).toBe(false);
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
     const frame = screen.getByTitle("Open DSH AirApp E2E embedding link AirApp");
     expect(frame.getAttribute("src")).toBe(
       "http://localhost:15419/dashboard/local/airapp/dsh-airapp-e2e-20260824?fullscreen=1",
@@ -527,7 +529,7 @@ describe("client plugin", () => {
     );
 
     expect(fireEvent.click(screen.getByRole("link"))).toBe(false);
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
     const frame = screen.getByTitle("Open Change Request Change Request");
     expect(frame.getAttribute("src")).toBe(
       "http://localhost:15419/embed/change-request/crqmt8fi2t5lw83zgx",
@@ -588,7 +590,7 @@ describe("client plugin", () => {
       fireEvent.click(screen.getByRole("link", { name: "Local embed" }), { metaKey: true }),
     ).toBe(true);
     expect(fireEvent.click(screen.getByRole("link", { name: "Foreign embed" }))).toBe(true);
-    expect(layout.openDetails).not.toHaveBeenCalled();
+    expect(layout.openRightbar).not.toHaveBeenCalled();
   });
 
   it("renders a created Base without inventing an embed URL", () => {
@@ -623,7 +625,7 @@ describe("client plugin", () => {
       name: /Customers.*base.*customers.*active.*Details/i,
     });
     fireEvent.click(baseCard);
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
     expect(screen.getByText("Base embedding is disabled.")).toBeTruthy();
     expect(screen.queryByTitle("Customers Base")).toBeNull();
     expect(screen.getByText("customers")).toBeTruthy();
@@ -929,16 +931,16 @@ describe("client plugin", () => {
     );
     expect(sessionPrompt.mock.calls[0]?.[0]?.[0]?.text).not.toContain("Quick proposal");
     expect(window.confirm).toHaveBeenCalledWith("Approve only ChangeRequest crqquick?");
-    expect(layout.openDetails).not.toHaveBeenCalled();
+    expect(layout.openRightbar).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: "Reject" }));
     await waitFor(() => expect(review).toHaveBeenCalledWith("rejected", "Needs revision"));
     expect(sessionPrompt).toHaveBeenCalledOnce();
     expect(window.confirm).toHaveBeenCalledWith("Reject only ChangeRequest crqquick?");
-    expect(layout.openDetails).not.toHaveBeenCalled();
+    expect(layout.openRightbar).not.toHaveBeenCalled();
 
     fireEvent.click(screen.getByRole("button", { name: /Quick proposal/i }));
-    expect(layout.openDetails).toHaveBeenCalledOnce();
+    expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
   });
 
   it("queues one continuation when ToolCard and Inspector approvals race", async () => {

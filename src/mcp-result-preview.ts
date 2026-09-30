@@ -6,6 +6,7 @@ import {
   createdChangeRequestId,
   createdNodeId,
   createNodePreviewLink,
+  type EmbedLinksClient,
 } from "./preview-link.js";
 
 interface PreviewContext {
@@ -53,6 +54,40 @@ export function registerMcpResultPreview(
 
     return decision;
   });
+}
+
+export function registerRemoteMcpResultPreview(
+  ctx: PreviewContext,
+  serverName: string,
+  previewClient: (targetSpaceId?: string) => EmbedLinksClient,
+): void {
+  ctx.on("tools/post-execute", async (exec, result, next) => {
+    const decision = await next();
+    if (decision.kind !== "accept" || "value" in decision || result.isError) return decision;
+
+    const changeRequestId = createdChangeRequestId(exec.name, result.value, serverName);
+    if (!changeRequestId) return decision;
+
+    return appendLink(
+      ctx,
+      decision,
+      result,
+      () =>
+        createChangeRequestPreviewLink(
+          previewClient(targetSpaceIdFrom(exec.arguments)),
+          changeRequestId,
+          { signal: exec.signal },
+        ),
+      changeRequestId,
+      "ChangeRequest",
+    );
+  });
+}
+
+function targetSpaceIdFrom(args: unknown): string | undefined {
+  if (!args || typeof args !== "object") return undefined;
+  const value = (args as Record<string, unknown>).targetSpaceId;
+  return typeof value === "string" && value.trim() ? value.trim() : undefined;
 }
 
 async function appendLink(

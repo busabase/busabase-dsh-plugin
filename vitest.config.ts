@@ -1,4 +1,5 @@
 import { createRequire } from "node:module";
+import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { defineConfig } from "vitest/config";
 
@@ -13,6 +14,10 @@ const reactJsxDevRuntime = testingLibraryRequire.resolve("react/jsx-dev-runtime"
 const reactDomRuntime = testingLibraryRequire.resolve("react-dom");
 const reactDomClientRuntime = testingLibraryRequire.resolve("react-dom/client");
 const reactDomTestUtilsRuntime = testingLibraryRequire.resolve("react-dom/test-utils");
+const sessionControllerScopeRuntime = resolve(
+  dirname(require.resolve("@deepseek-ai/dsh-api-session-controller/package.json")),
+  "lib/types/client/scope.js",
+);
 
 export default defineConfig({
   resolve: {
@@ -48,6 +53,10 @@ export default defineConfig({
         replacement: reactDomTestUtilsRuntime,
       },
       {
+        find: "@deepseek-ai/dsh-client-ui-renderer/client",
+        replacement: testSupport("dsh-renderer-source.ts"),
+      },
+      {
         find: "@deepseek-ai/dsh-client-ui-renderer/src/client/bind.ts",
         replacement: testSupport("dsh-renderer-source.ts"),
       },
@@ -56,12 +65,24 @@ export default defineConfig({
         replacement: testSupport("dsh-renderer-source.ts"),
       },
       {
-        find: "@deepseek-ai/dsh-client-runtime/client",
-        replacement: testSupport("dsh-runtime-client.ts"),
+        find: "@deepseek-ai/dsh-api-session-controller/src/client/scope.ts",
+        replacement: sessionControllerScopeRuntime,
+      },
+      {
+        find: "@deepseek-ai/dsh-api-session-controller/client",
+        replacement: testSupport("dsh-session-controller-client.ts"),
       },
       {
         find: "@deepseek-ai/dsh-client-locale/client",
         replacement: testSupport("dsh-locale-client.ts"),
+      },
+      {
+        find: "@deepseek-ai/dsh-client-ui-session/client",
+        replacement: testSupport("dsh-session-client.ts"),
+      },
+      {
+        find: "@deepseek-ai/dsh-client-ui-chat/client",
+        replacement: testSupport("dsh-chat-client.ts"),
       },
       {
         find: "@deepseek-ai/dsh-client-ui-conversation/client",
