@@ -3,7 +3,7 @@
 import type { PostToolDecision } from "@deepseek-ai/dsh-tools";
 import type { Busabase } from "busabase-sdk";
 import { describe, expect, it, vi } from "vitest";
-import { registerMcpResultPreview } from "./mcp-result-preview.js";
+import { registerMcpResultPreview, registerRemoteMcpResultPreview } from "./mcp-result-preview.js";
 
 const success = (value: unknown) => ({
   isError: false as const,
@@ -160,6 +160,98 @@ describe("MCP result preview augmentation", () => {
       async () => original,
     );
     expect(decision).toBe(original);
+    expect(warn).toHaveBeenCalledOnce();
+  });
+});
+
+describe("remote MCP result preview augmentation", () => {
+  it("uses the live OAuth preview client with the call's space and abort signal", async () => {
+    let listener!: (
+      exec: { name: string; arguments: unknown; signal: AbortSignal },
+      result: ReturnType<typeof success>,
+      next: () => Promise<PostToolDecision>,
+    ) => Promise<PostToolDecision>;
+    const create = vi.fn().mockResolvedValue({
+      id: "emb_cloud",
+      type: "change-request",
+      typeId: "crq_cloud",
+      url: "https://busabase.example/embed/emb_cloud",
+      iframeUrl: "https://busabase.example/embed/emb_cloud?view=iframe",
+    });
+    const previewClient = vi.fn(() => ({ embedLinks: { create } }));
+    registerRemoteMcpResultPreview(
+      {
+        on: (_event, callback) => {
+          listener = callback as typeof listener;
+        },
+        logger: { warn: vi.fn() },
+      },
+      "busabase",
+      previewClient as never,
+    );
+    const signal = new AbortController().signal;
+    const result = success({ id: "crq_cloud", type: "change_request", status: "in_review" });
+
+    const decision = await listener(
+      {
+        name: "mcp__busabase__bases_create_change_request",
+        arguments: { targetSpaceId: "spc_cloud" },
+        signal,
+      },
+      result,
+      async () => ({ kind: "accept" }),
+    );
+
+    expect(previewClient).toHaveBeenCalledWith("spc_cloud");
+    expect(create).toHaveBeenCalledWith(
+      {
+        type: "change-request",
+        typeId: "crq_cloud",
+        framePolicy: { mode: "anywhere", allowedOrigins: [] },
+      },
+      { signal },
+    );
+    expect(decision.kind === "accept" && decision.content).toHaveLength(2);
+  });
+
+  it("does not mint Cloud node previews and preserves results when the bridge is unavailable", async () => {
+    let listener!: (
+      exec: { name: string; arguments: unknown; signal: AbortSignal },
+      result: ReturnType<typeof success>,
+      next: () => Promise<PostToolDecision>,
+    ) => Promise<PostToolDecision>;
+    const warn = vi.fn();
+    const previewClient = vi.fn(() => {
+      throw new Error("not connected");
+    });
+    registerRemoteMcpResultPreview(
+      {
+        on: (_event, callback) => {
+          listener = callback as typeof listener;
+        },
+        logger: { warn },
+      },
+      "busabase",
+      previewClient,
+    );
+    const signal = new AbortController().signal;
+    const original = { kind: "accept" as const };
+
+    expect(
+      await listener(
+        { name: "mcp__busabase__node_create", arguments: {}, signal },
+        success({ type: "airapp", id: "nod_cloud" }),
+        async () => original,
+      ),
+    ).toBe(original);
+    expect(previewClient).not.toHaveBeenCalled();
+    expect(
+      await listener(
+        { name: "mcp__busabase__change_requests_get", arguments: {}, signal },
+        success({ id: "crq_cloud", type: "change_request", status: "in_review" }),
+        async () => original,
+      ),
+    ).toBe(original);
     expect(warn).toHaveBeenCalledOnce();
   });
 });

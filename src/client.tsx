@@ -1,7 +1,8 @@
 import type { Context } from "@deepseek-ai/cordis";
-import type { ISessions, SessionId } from "@deepseek-ai/dsh-client-runtime/client";
+import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
 import type {} from "@deepseek-ai/dsh-client-ui-conversation/client";
 import type {} from "@deepseek-ai/dsh-client-ui-layout/client";
+import type {} from "@deepseek-ai/dsh-client-ui-renderer/client";
 import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { ToolCallOwnerProps, ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import { Busabase } from "busabase-sdk";
@@ -16,6 +17,8 @@ import {
 } from "./normalize.js";
 import { isAutoPreviewToolName } from "./preview-link.js";
 import styles from "./styles.css";
+
+type SessionId = Parameters<ISessions["binding"]>[0];
 
 export const name = "@busabase/dsh-plugin/client";
 export const inject = ["slots", "layout", "sessions"];
@@ -154,7 +157,7 @@ export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
       event.preventDefault();
       if (ref.type === "embed") store.selectPreview(ref);
       else store.select(ref);
-      ctx.layout.openDetails();
+      ctx.layout.openRightbar(true, false);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
@@ -167,10 +170,7 @@ export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
     );
   }
 
-  ctx.slots.register(
-    { name: "details", priority: -10 } as never,
-    createDetailsPanel(store, ctx) as never,
-  );
+  ctx.slots.register({ name: "rightbar", priority: -10 }, createDetailsPanel(store, ctx));
 }
 
 async function requestNodePreview(nodeId: string): Promise<unknown> {
@@ -192,7 +192,8 @@ function ensureStyles(): void {
 }
 
 export function extractToolPayload(block: ToolCallOwnerProps["block"]): unknown {
-  if (!("content" in block)) {
+  if (!("kind" in block)) {
+    if (block.phase === "preparing") return {};
     try {
       return block.argsRaw ? JSON.parse(block.argsRaw) : {};
     } catch {
@@ -222,7 +223,12 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
     const refs = useMemo(() => {
       let targetSpaceId: unknown;
       try {
-        const argsRaw = "argsRaw" in block ? block.argsRaw : block.call?.argsRaw;
+        const argsRaw =
+          "kind" in block
+            ? block.call?.argsRaw
+            : block.phase === "start"
+              ? block.argsRaw
+              : undefined;
         targetSpaceId = asRecord(JSON.parse(argsRaw ?? "{}")).targetSpaceId;
       } catch {
         /* Incomplete tool arguments may not be JSON yet. */
@@ -260,7 +266,7 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
       if (preview.type === "change-request" && store.config.connection.mode === "local")
         store.select(preview, sessionId ?? null);
       else store.selectPreview(preview, sessionId ?? null);
-      ctx.layout.openDetails();
+      ctx.layout.openRightbar(true, false);
     }, [
       preview,
       sessionId,
@@ -268,7 +274,7 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
       store.select,
       store.selectPreview,
       store.config.connection.mode,
-      ctx.layout.openDetails,
+      ctx.layout.openRightbar,
     ]);
     return (
       <div className="bb-card-stack">
@@ -291,7 +297,7 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
                   if (store.config.connection.mode === "local")
                     store.select(ref, sessionId ?? null);
                   else store.selectPreview(ref, sessionId ?? null);
-                  ctx.layout.openDetails();
+                  ctx.layout.openRightbar(true, false);
                 }}
               >
                 <span className="bb-card-icon">{entityIcon(ref.type)}</span>
@@ -338,7 +344,7 @@ function createToolCard(store: BusabaseInspectorStore, ctx: Context): React.FC<T
 function createDetailsPanel(
   store: BusabaseInspectorStore,
   ctx: Context,
-): React.FC<PropsRuntime<"details">> {
+): React.FC<PropsRuntime<"rightbar">> {
   return function BusabaseDetailsPanel() {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const [fullscreen, setFullscreen] = useState(false);
@@ -349,7 +355,7 @@ function createDetailsPanel(
       ref?.type === "change-request" ? changeRequestStatus(snapshot.data, ref.status) : ref?.status;
     const closePanel = () => {
       setFullscreen(false);
-      ctx.layout.closeDetails();
+      ctx.layout.closeRightbar();
     };
     useEffect(() => {
       if (!fullscreen) return;
@@ -768,7 +774,7 @@ async function resumeApprovedChangeRequest(
   }
   store.clearResumeNotice(sessionId, changeRequestId);
   try {
-    // This client bundle runs with dsh-client-runtime's ISessions service. The
+    // This client bundle runs with the session controller's ISessions service.
     // The shared type graph also declares the server SessionStore on Context, so
     // narrow explicitly at this browser-only boundary.
     const sessions = ctx.sessions as unknown as ISessions;

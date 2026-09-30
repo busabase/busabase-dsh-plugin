@@ -3,7 +3,8 @@ import { createServer, type Server } from "node:http";
 import type { Context } from "@deepseek-ai/cordis";
 import type { CredentialKey, CredentialRecord } from "@deepseek-ai/dsh-credentials";
 import { credentialKey } from "@deepseek-ai/dsh-credentials";
-import type { JsonValue, ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
+import type { ToolDefinition, ToolRunContext } from "@deepseek-ai/dsh-tools";
+import type { JsonValue } from "@deepseek-ai/dsh-util-values";
 import {
   type OAuthClientProvider,
   UnauthorizedError,
@@ -33,7 +34,7 @@ import {
  * `version`, so the pair cannot drift silently — which it already had, the
  * manifest saying 0.1.1 while this said 0.1.0 and npm had shipped 0.1.5.
  */
-export const PLUGIN_VERSION = "0.1.13";
+export const PLUGIN_VERSION = "0.1.14";
 
 // The OAuth flow follows the MIT-licensed MCP TypeScript SDK example and the
 // architecture proven by springbrand-lab/dsh-oauth-mcp-client. DSH's built-in

@@ -140,7 +140,7 @@ describe("host plugin wiring", () => {
     expect(routes).toEqual([]);
     // The client-config bridge listener is registered for both connection modes (see apply()),
     // so it's present even though remote mode skips every other local-only registration.
-    expect(listeners).toEqual(["webserver/index-inject"]);
+    expect(listeners).toEqual(["webserver/index-inject", "tools/post-execute"]);
     expect(connectRemoteMcp).toHaveBeenCalledWith(
       ctx,
       expect.objectContaining({ connection: { mode: "remote" } }),

@@ -11,7 +11,7 @@ import { defineTool } from "@deepseek-ai/dsh-tools";
 import { Busabase } from "busabase-sdk";
 import { BUSABASE_HOST_CONFIG_GLOBAL, toBusabaseClientConfig } from "./client-config.js";
 import { type BusabasePluginConfig, Config, resolveConfig } from "./config.js";
-import { registerMcpResultPreview } from "./mcp-result-preview.js";
+import { registerMcpResultPreview, registerRemoteMcpResultPreview } from "./mcp-result-preview.js";
 import { connectRemoteMcp, type RemoteMcpHandle } from "./oauth-mcp-client.js";
 import { BUSABASE_SYSTEM_PROMPT } from "./prompt.js";
 import { createBusabaseServerRouter } from "./server-router.js";
@@ -75,6 +75,9 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
       handle = connectRemoteMcp(ctx, config, credentials);
       return async () => handle.dispose();
     }, "busabase: cloud mcp connection");
+    registerRemoteMcpResultPreview(ctx, config.serverName, (targetSpaceId) =>
+      handle.previewClient(targetSpaceId),
+    );
     const outcome = await handle.ready;
     if (outcome.error)
       throw new Error(
