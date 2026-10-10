@@ -45,7 +45,7 @@ afterEach(async () => {
   else Reflect.deleteProperty(Element.prototype, "getAnimations");
 });
 
-async function boot(desktop = false, pluginFirst = false) {
+async function boot(desktop = false, pluginFirst = false, richPreview = true) {
   const acquire = vi.fn(async () => ({ lease: "fake-lease", partition: "fake-partition" }));
   if (desktop)
     vi.stubGlobal("dshDesktop", {
@@ -92,44 +92,42 @@ async function boot(desktop = false, pluginFirst = false) {
   if (!pluginFirst) await mountOfficial();
   const plugin = await runtime.mount({
     inject,
-    apply: (ctx) => apply(ctx, { baseUrl: "https://busabase.com" }),
+    apply: (ctx) =>
+      apply(ctx, {
+        baseUrl: "https://busabase.com",
+        changeRequestIframe: { enabled: richPreview },
+      }),
   });
   const root = runtime.renderSlot("rightbar", { width: 420, viewportWidth: 1440, canShow: true });
   const link = document.createElement("a");
   link.href = "https://busabase.com/embed/emb_test?token=fake-test-token";
   link.textContent = "Session preview";
   document.body.append(link);
+  // Do not let jsdom's unsupported default navigation obscure failed-dispatch assertions.
+  const cancelNavigation = (event: MouseEvent) => event.preventDefault();
+  document.addEventListener("click", cancelNavigation);
+  runtime.ctx.effect(() => () => document.removeEventListener("click", cancelNavigation));
   return { runtime, root, link, reference, layout, acquire, plugin, mountOfficial };
 }
 
-it("migrates a plugin-first root when official services load, restores fallback on unload, and reloads cleanly (FAKE desktop bridge)", async () => {
+it("never shadows the official root while Desktop services load, unload, or reload (FAKE bridge)", async () => {
   const h = await boot(true, true);
   try {
     fireEvent.click(h.link);
-    await waitFor(() => expect(h.root.container.querySelector(".bb-panel iframe")).not.toBeNull());
+    expect(h.root.container.querySelector(".bb-panel, iframe")).toBeNull();
     const [sidebar, browser] = await h.mountOfficial();
-    expect(h.runtime.ctx.sidebarRightTabs.get("busabase-inspector")?.id).toBe(
-      "@busabase/dsh-plugin/inspector",
-    );
+    expect(h.runtime.ctx.sidebarRightTabs.get("busabase-inspector")).toBeUndefined();
     fireEvent.click(h.link);
     await waitFor(() => expect(h.root.container.querySelector("webview")).not.toBeNull());
     expect(h.acquire).toHaveBeenCalledWith(`session:${SESSION}`);
-    expect(h.root.container.querySelector(".bb-panel")).toBeNull();
-    act(() => h.runtime.ctx.sidebarRight.openTab("busabase-inspector"));
-    await waitFor(() =>
-      expect(h.root.view.getByRole("heading", { name: "Session preview" })).toBeDefined(),
-    );
     await browser.dispose();
     await sidebar.dispose();
-    expect(h.runtime.ctx.get("sidebarRight")).toBeUndefined();
     fireEvent.click(h.link);
-    await waitFor(() => expect(h.root.container.querySelector(".bb-panel iframe")).not.toBeNull());
+    expect(h.root.container.querySelector(".bb-panel, iframe")).toBeNull();
     await h.mountOfficial();
     fireEvent.click(h.link);
     await waitFor(() => expect(h.root.container.querySelector("webview")).not.toBeNull());
-    expect(h.root.container.querySelector(".bb-panel")).toBeNull();
     await h.plugin.dispose();
-    expect(h.runtime.ctx.sidebarRightTabs.get("busabase-inspector")).toBeUndefined();
     expect(h.root.container.querySelector("webview")).not.toBeNull();
   } finally {
     h.link.remove();
@@ -162,32 +160,54 @@ it("coexists with the official root and mounts the Browser webview using a FAKE 
       .querySelector("[data-sidebar-right-open]")
       ?.getAttribute("data-sidebar-right-open"),
   ).toBe("true");
-  act(() => h.runtime.ctx.sidebarRight.openTab("busabase-inspector"));
-  await waitFor(() =>
-    expect(h.root.view.getByRole("heading", { name: "Session preview" })).toBeDefined(),
-  );
-  expect(h.runtime.ctx.sidebarRight.active()?.kind).toBe("busabase-inspector");
-  const closes = h.layout.closeRightbar.mock.calls.length;
-  fireEvent.click(h.root.view.getByRole("button", { name: "Close details" }));
-  expect(h.runtime.ctx.sidebarRight.active()?.kind).toBe("browser");
-  expect(h.layout.closeRightbar).toHaveBeenCalledTimes(closes);
-  expect(
-    h.root.container.querySelector("webview")?.closest("[hidden], [aria-hidden='true']"),
-  ).toBeNull();
+  expect(h.runtime.ctx.sidebarRightTabs.get("busabase-inspector")).toBeUndefined();
+  expect(h.layout.openRightbar).toHaveBeenCalledWith(true, false);
+  act(() => h.runtime.ctx.sidebarRight.toggleExpanded());
+  expect(h.runtime.ctx.sidebarRight.isExpanded()).toBe(false);
+  fireEvent.click(h.link);
+  expect(h.runtime.ctx.sidebarRight.isExpanded()).toBe(true);
   h.link.remove();
 });
 
-it("recovers a failed native dispatch in Inspector and retries a deliberate link click", async () => {
+it("does not recover failed Desktop dispatch in Inspector and retries a deliberate click", async () => {
   const h = await boot(true);
   vi.spyOn(h.runtime.ctx.sidebarRight, "openTab").mockImplementationOnce(() => {
     throw new Error("fake dispatch failure");
   });
   fireEvent.click(h.link);
-  await waitFor(() => expect(h.root.container.querySelector(".bb-panel iframe")).not.toBeNull());
-  expect(h.runtime.ctx.sidebarRight.active()?.kind).toBe("busabase-inspector");
+  expect(h.root.container.querySelector(".bb-panel, iframe, webview")).toBeNull();
+  expect(h.runtime.ctx.sidebarRightTabs.get("busabase-inspector")).toBeUndefined();
   fireEvent.click(h.link);
   await waitFor(() => expect(h.root.container.querySelector("webview")).not.toBeNull());
   expect(h.runtime.ctx.sidebarRight.active()?.kind).toBe("browser");
+  h.link.remove();
+});
+
+it("opens the canonical CR link in the official Browser when rich preview is disabled (FAKE bridge)", async () => {
+  const h = await boot(true, false, false);
+  const openTab = vi.spyOn(h.runtime.ctx.sidebarRight, "openTab");
+  h.link.href = "https://busabase.com/embed/change-request/crq_canonical?token=fake";
+  fireEvent.click(h.link);
+  await waitFor(() => expect(h.root.container.querySelector("webview")).not.toBeNull());
+  expect(openTab).toHaveBeenCalledWith("browser", {
+    params: { url: "https://busabase.com/dashboard/inbox/crq_canonical" },
+  });
+  expect(h.runtime.ctx.sidebarRight.isExpanded()).toBe(true);
+  expect(h.root.container.querySelector(".bb-panel, iframe")).toBeNull();
+  h.link.remove();
+});
+
+it("opens a canonical conversation CR link in its original Space and session (FAKE bridge)", async () => {
+  const h = await boot(true);
+  const openTab = vi.spyOn(h.runtime.ctx.sidebarRight, "openTab");
+  h.link.href = "https://busabase.com/dashboard/org_original/inbox/crq_existing";
+  fireEvent.click(h.link);
+  await waitFor(() => expect(h.root.container.querySelector("webview")).not.toBeNull());
+  expect(openTab).toHaveBeenCalledWith("browser", {
+    params: { url: h.link.href },
+  });
+  expect(h.acquire).toHaveBeenCalledWith(`session:${SESSION}`);
+  expect(h.root.container.querySelector(".bb-panel, iframe")).toBeNull();
   h.link.remove();
 });
 
@@ -257,7 +277,7 @@ it.each([false, true])(
       loadImage: async () => null,
     });
     expect(h.runtime.ctx.sidebarRight.openTabs.getSnapshot()).toHaveLength(before);
-    fireEvent.click(card.view.getByRole("button", { name: /Auto preview/ }));
+    fireEvent.click(card.view.getByRole(desktop ? "link" : "button", { name: /Auto preview/ }));
     expect(h.runtime.ctx.sidebarRight.active()?.kind).toBe(
       desktop ? "browser" : "busabase-inspector",
     );

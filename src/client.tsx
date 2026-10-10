@@ -14,7 +14,11 @@ import {
 } from "./client-config.js";
 import { BusabaseInspectorStore } from "./client-store.js";
 import type { BusabasePluginConfig } from "./config.js";
-import { NativeChangeRequestPreview, type NativePreviewResult } from "./native-preview.js";
+import {
+  isDesktopHost,
+  NativeChangeRequestPreview,
+  type NativePreviewResult,
+} from "./native-preview.js";
 import {
   BUILT_IN_NODE_TYPES,
   type BusabaseEntityRef,
@@ -41,6 +45,7 @@ function inspectorSidebar(ctx: Context) {
 }
 
 function revealInspector(ctx: Context): void {
+  if (isDesktopHost()) return;
   const services = inspectorSidebar(ctx);
   if (services?.tabs.get(INSPECTOR_KIND)?.id === INSPECTOR_ID)
     services.sidebar.openTab(INSPECTOR_KIND);
@@ -185,10 +190,15 @@ function registerClient(ctx: Context, input: BusabasePluginConfig): void {
       if (!target || target.hasAttribute("download")) return;
       const ref = busabaseRefFromLink(target.href, target.textContent, config.baseUrl);
       if (!ref) return;
-      if (ref.type === "change-request" && !config.changeRequestIframe.enabled) return;
+      if (ref.type === "change-request" && !config.changeRequestIframe.enabled && !isDesktopHost())
+        return;
       const sessionId = mountedSession(ctx);
       const nativeResult = openNativePreview(ctx, store, nativePreview, ref, sessionId, true);
       if (nativeResult === "stale") return;
+      if (isDesktopHost()) {
+        if (nativeResult === "opened") event.preventDefault();
+        return;
+      }
       event.preventDefault();
       if (ref.type === "embed" || config.connection.mode === "remote")
         store.selectPreview(ref, sessionId);
@@ -209,6 +219,7 @@ function registerClient(ctx: Context, input: BusabasePluginConfig): void {
     );
   }
 
+  if (isDesktopHost()) return;
   const Panel = createDetailsPanel(store, ctx, nativePreview);
   let alive = true;
   let fallback: (() => unknown) | undefined;
@@ -339,6 +350,28 @@ function previewSpace(store: BusabaseInspectorStore, ref: BusabaseEntityRef): st
     : (store.config.spaceId ?? null);
 }
 
+function canonicalCardUrl(
+  store: BusabaseInspectorStore,
+  ref: BusabaseEntityRef,
+): string | undefined {
+  if (ref.type === "embed") return store.embedUrl(ref);
+  const canonicalUrl = store.nodeUrl(ref);
+  if (ref.type !== "change-request")
+    return canonicalUrl ?? (ref.type === "airapp" ? store.airAppUrl(ref) : undefined);
+  const id = ref.changeRequestId ?? ref.id;
+  if (!id) return undefined;
+  const spaceId = previewSpace(store, ref);
+  const spacePrefix = isDesktopOrigin(store.config.baseUrl)
+    ? "/local"
+    : spaceId
+      ? `/${encodeURIComponent(spaceId)}`
+      : "";
+  const path = `/dashboard${spacePrefix}/inbox/${encodeURIComponent(id)}`;
+  return canonicalUrl && new URL(canonicalUrl).pathname === path
+    ? canonicalUrl
+    : new URL(path, store.config.baseUrl).toString();
+}
+
 function openNativePreview(
   ctx: Context,
   store: BusabaseInspectorStore,
@@ -347,14 +380,15 @@ function openNativePreview(
   sessionId: string | null,
   deliberate = false,
 ): NativePreviewResult {
-  if (store.config.connection.mode !== "remote") return "unavailable";
+  const id = ref.type === "embed" ? `embed:${ref.id}` : (ref.changeRequestId ?? ref.id);
+  if (!id) return "unavailable";
+  const spaceId = previewSpace(store, ref);
   const url =
     ref.type === "change-request"
-      ? store.config.changeRequestIframe.enabled && store.changeRequestEmbedUrl(ref)
+      ? (store.config.changeRequestIframe.enabled && store.changeRequestEmbedUrl(ref)) ||
+        canonicalCardUrl(store, ref)
       : ref.type === "embed" && store.embedUrl(ref);
-  const id = ref.type === "embed" ? `embed:${ref.id}` : (ref.changeRequestId ?? ref.id);
-  if (!url || !id) return "unavailable";
-  const spaceId = previewSpace(store, ref);
+  if (!url) return "unavailable";
   if (deliberate) adapter.forget(sessionId, spaceId, id);
   return adapter.open(ctx, { sessionId, spaceId, changeRequestId: id, url });
 }
@@ -401,6 +435,7 @@ function createToolCard(
       if (!sessionMatches(ctx, sessionId ?? null)) return;
       const nativeResult = openNativePreview(ctx, store, nativePreview, preview, sessionId ?? null);
       if (nativeResult === "stale") return;
+      if (isDesktopHost()) return;
       const selected = store.getSnapshot().selected;
       if (
         (preview.type === "embed" &&
@@ -438,13 +473,24 @@ function createToolCard(
             ref.type === "change-request"
               ? changeRequestStatus(data, displayRef.status)
               : ref.status;
+          const desktop = isDesktopHost();
+          const href = desktop ? canonicalCardUrl(store, ref) : undefined;
+          const CardOpen = desktop ? (href ? "a" : "span") : "button";
           return (
             <div className="bb-card" key={`${ref.type}:${ref.id ?? ref.slug ?? index}`}>
-              <button
-                type="button"
+              <CardOpen
+                href={href}
+                target={href ? "_blank" : undefined}
+                rel={href ? "noopener noreferrer" : undefined}
+                type={desktop ? undefined : "button"}
                 className="bb-card-open"
-                onClick={() => {
-                  if (!sessionMatches(ctx, sessionId ?? null)) return;
+                onClick={(event) => {
+                  if (desktop && (event.metaKey || event.ctrlKey || event.shiftKey || event.altKey))
+                    return;
+                  if (!sessionMatches(ctx, sessionId ?? null)) {
+                    event.preventDefault();
+                    return;
+                  }
                   const nativeResult = openNativePreview(
                     ctx,
                     store,
@@ -453,7 +499,14 @@ function createToolCard(
                     sessionId ?? null,
                     true,
                   );
-                  if (nativeResult === "stale") return;
+                  if (nativeResult === "stale") {
+                    event.preventDefault();
+                    return;
+                  }
+                  if (desktop) {
+                    if (nativeResult === "opened") event.preventDefault();
+                    return;
+                  }
                   if (store.config.connection.mode === "local")
                     store.select(ref, sessionId ?? null);
                   else store.selectPreview(ref, sessionId ?? null);
@@ -471,8 +524,10 @@ function createToolCard(
                 {ref.type === "change-request" && status !== "merged" ? (
                   <span className="bb-pill">Review</span>
                 ) : null}
-                <span className="bb-card-action">Details</span>
-              </button>
+                <span className="bb-card-action">
+                  {desktop ? (href ? "Open in Busabase" : "") : "Details"}
+                </span>
+              </CardOpen>
               {ref.type === "change-request" ? (
                 <ChangeRequestActions
                   refValue={displayRef}
@@ -1408,6 +1463,35 @@ export function busabaseRefFromLink(
   }
   if (!["http:", "https:"].includes(url.protocol) || url.origin !== configuredOrigin) return null;
   const title = label?.trim() || "Busabase node";
+  const canonicalChangeRequest = url.pathname.match(
+    /^\/dashboard\/(?:([^/]+)\/)?inbox\/([^/]+)\/?$/,
+  );
+  if (isDesktopHost() && canonicalChangeRequest) {
+    if (url.username || url.password) return null;
+    let id: string;
+    let spaceId: string | undefined;
+    try {
+      id = decodeURIComponent(canonicalChangeRequest[2]);
+      spaceId = canonicalChangeRequest[1]
+        ? decodeURIComponent(canonicalChangeRequest[1])
+        : undefined;
+    } catch {
+      return null;
+    }
+    return {
+      type: "change-request",
+      id,
+      changeRequestId: id,
+      title,
+      href: url.toString(),
+      metadata: {
+        linkPreview: true,
+        openUrl: url.toString(),
+        ...(spaceId ? { targetSpaceId: spaceId } : {}),
+      },
+      raw: { type: "change-request", id },
+    };
+  }
   const changeRequestEmbedMatch = url.pathname.match(/^\/embed\/change-request\/([^/]+)\/?$/);
   if (changeRequestEmbedMatch) {
     const id = decodeURIComponent(changeRequestEmbedMatch[1]);

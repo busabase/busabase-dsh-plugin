@@ -20,7 +20,13 @@ function fakeCtx(options: {
   workspaces?: unknown;
 }): Context {
   const services: Record<string, unknown> = {
-    sidebarRight: options.sidebarRight,
+    sidebarRight: options.sidebarRight
+      ? {
+          isExpanded: () => true,
+          toggleExpanded: vi.fn(),
+          ...options.sidebarRight,
+        }
+      : undefined,
     sidebarRightTabs: options.sidebarRightTabs,
     workspaces: options.workspaces ?? {},
   };
@@ -51,8 +57,8 @@ describe("NativeChangeRequestPreview", () => {
   it.each([
     undefined,
     { protocolVersion: 2, browser: { acquire: vi.fn() } },
-    { protocolVersion: 1, browser: {} },
-  ])("requires a protocol-v1 Desktop browser acquire capability (%j)", (bridge) => {
+    { protocolVersion: 1 },
+  ])("matches the official protocol-v1 Desktop browser selection (%j)", (bridge) => {
     vi.stubGlobal("dshDesktop", bridge);
     const { ctx, openTab } = available();
     expect(
@@ -66,7 +72,7 @@ describe("NativeChangeRequestPreview", () => {
     expect(openTab).not.toHaveBeenCalled();
   });
 
-  it("requires workspaces and the official browser provider", () => {
+  it("lets the official browser wait for workspaces, but requires its official provider", () => {
     const { ctx, openTab } = available();
     const get = ctx.get.bind(ctx);
     const input = {
@@ -78,13 +84,13 @@ describe("NativeChangeRequestPreview", () => {
     const missingWorkspaces = {
       get: (name: string) => (name === "workspaces" ? undefined : get(name as never)),
     } as unknown as Context;
-    expect(new NativeChangeRequestPreview().open(missingWorkspaces, input)).toBe("unavailable");
+    expect(new NativeChangeRequestPreview().open(missingWorkspaces, input)).toBe("opened");
     const replacement = fakeCtx({
       sidebarRight: { mounted: { getSnapshot: () => "s1" }, openTab },
       sidebarRightTabs: { get: () => ({ id: "third-party" }) },
     });
     expect(new NativeChangeRequestPreview().open(replacement, input)).toBe("unavailable");
-    expect(openTab).not.toHaveBeenCalled();
+    expect(openTab).toHaveBeenCalledOnce();
   });
 
   it("deduplicates token refreshes but separates Spaces and sessions without storing tokens", () => {
@@ -138,11 +144,11 @@ describe("NativeChangeRequestPreview", () => {
     });
     preview.forget(input.sessionId, input.spaceId, input.changeRequestId);
     expect(preview.open(ctx, input)).toBe("error");
-    expect(preview.open(ctx, input)).toBe("error");
-    expect(openTab).toHaveBeenCalledOnce();
-    preview.forget(input.sessionId, input.spaceId, input.changeRequestId);
     expect(preview.open(ctx, input)).toBe("opened");
     expect(openTab).toHaveBeenCalledTimes(2);
+    preview.forget(input.sessionId, input.spaceId, input.changeRequestId);
+    expect(preview.open(ctx, input)).toBe("opened");
+    expect(openTab).toHaveBeenCalledTimes(3);
   });
   it("opens the browser tab when the host has registered sidebarRight and the browser kind", () => {
     const { ctx, openTab } = available();
@@ -280,6 +286,25 @@ describe("NativeChangeRequestPreview", () => {
     preview.forget(input.sessionId, input.spaceId, input.changeRequestId);
     expect(preview.open(ctx, input)).toBe("opened");
     expect(openTab).toHaveBeenCalledTimes(2);
+  });
+
+  it("expands a collapsed official sidebar even for a deduplicated dispatch", () => {
+    const { ctx, openTab } = available();
+    const sidebar = ctx.get("sidebarRight");
+    if (!sidebar) throw new Error("Test sidebar unavailable");
+    sidebar.isExpanded = vi.fn(() => false);
+    sidebar.toggleExpanded = vi.fn();
+    const preview = new NativeChangeRequestPreview();
+    const input = {
+      sessionId: "s1",
+      spaceId: "org1",
+      changeRequestId: "crq1",
+      url: "https://busabase.com/dashboard/org1/inbox/crq1",
+    };
+    expect(preview.open(ctx, input)).toBe("opened");
+    expect(preview.open(ctx, input)).toBe("opened");
+    expect(openTab).toHaveBeenCalledOnce();
+    expect(sidebar.toggleExpanded).toHaveBeenCalledOnce();
   });
 
   it("opens independent tabs for different ChangeRequests in the same session", () => {

@@ -2,6 +2,11 @@ import type { Context } from "@deepseek-ai/cordis";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar-browser/client";
 import type {} from "@deepseek-ai/dsh-client-ui-sidebar-right/client";
 
+/** Keep Desktop out of plugin iframe/root fallbacks, even with an incomplete bridge. */
+export function isDesktopHost(): boolean {
+  return (globalThis as typeof globalThis & { dshDesktop?: unknown }).dshDesktop !== undefined;
+}
+
 export type NativePreviewResult = "opened" | "unavailable" | "stale" | "error";
 
 interface OpenChangeRequestPreviewInput {
@@ -18,7 +23,6 @@ interface OpenChangeRequestPreviewInput {
  */
 export class NativeChangeRequestPreview {
   private readonly opened = new Set<string>();
-  private readonly failed = new Set<string>();
 
   /**
    * Desktop-only dispatch through the official host browser. Web retains the
@@ -30,12 +34,11 @@ export class NativeChangeRequestPreview {
     try {
       const carrier = (
         globalThis as typeof globalThis & {
-          dshDesktop?: { protocolVersion?: number; browser?: { acquire?: unknown } };
+          dshDesktop?: { protocolVersion?: number; browser?: unknown };
         }
       ).dshDesktop;
-      if (carrier?.protocolVersion !== 1 || typeof carrier.browser?.acquire !== "function")
-        return "unavailable";
-      if (typeof ctx.get !== "function" || !ctx.get("workspaces")) return "unavailable";
+      if (carrier?.protocolVersion !== 1 || carrier.browser === undefined) return "unavailable";
+      if (typeof ctx.get !== "function") return "unavailable";
       const sidebarRight = ctx.get("sidebarRight");
       const sidebarRightTabs = ctx.get("sidebarRightTabs");
       if (!sidebarRight || !sidebarRightTabs) return "unavailable";
@@ -43,14 +46,11 @@ export class NativeChangeRequestPreview {
         return "unavailable";
       if (!input.sessionId) return "unavailable";
       if (sidebarRight.mounted.getSnapshot() !== input.sessionId) return "stale";
-      if (this.opened.has(key)) return "opened";
-      if (this.failed.has(key)) return "error";
-      sidebarRight.openTab("browser", { params: { url: input.url } });
+      if (!this.opened.has(key)) sidebarRight.openTab("browser", { params: { url: input.url } });
+      else if (!sidebarRight.isExpanded()) sidebarRight.toggleExpanded();
       this.opened.add(key);
     } catch {
-      // Host wiring mistake (e.g. a kind unregistered between the check above
-      // and this call); never surface as a crash, fall back to the iframe.
-      this.failed.add(key);
+      // A later click/render can retry once the official services recover.
       return "error";
     }
     // Dispatch only, not proof of guest load. The host persists the full URL locally.
@@ -60,7 +60,6 @@ export class NativeChangeRequestPreview {
   /** Allows a deliberate reopen (e.g. after the user closes the native tab or clicks Reload). */
   forget(sessionId: string | null, spaceId: string | null, changeRequestId: string): void {
     this.opened.delete(this.key(sessionId, spaceId, changeRequestId));
-    this.failed.delete(this.key(sessionId, spaceId, changeRequestId));
   }
 
   private key(sessionId: string | null, spaceId: string | null, changeRequestId: string): string {

@@ -25,6 +25,10 @@ button.bb-card {
   background: transparent;
   color: inherit;
   cursor: pointer;
+  text-decoration: none;
+}
+span.bb-card-open {
+  cursor: default;
 }
 .bb-card-open:hover,
 button.bb-card:hover {
