@@ -133,6 +133,12 @@ Override the Bundle row by `id` and point `baseUrl` at an `https://` Busabase Cl
 
 The plugin never manages or starts a remote server. When the remote plugin loads for the first time, it opens your OS browser for a standard OAuth sign-in; DeepSeek Harness stores the resulting token through its credential store, not in this configuration. The MCP connection still sends a fixed `changeRequest` permission ceiling. In this release the Inspector's review, merge, live refresh, and embedded Base/AirApp previews stay local-only: use the canonical Busabase Cloud link the Inspector shows to inspect, review, and merge remotely.
 
+Cloud ChangeRequest previews use the existing Sidebar Browser on a compatible DeepSeek Harness Desktop host (protocol v1, native browser capability, workspace service, and the official registered browser provider). Automatic previews, card clicks, and recognized Cloud preview links share this optional handoff; no sidebar plugin is installed or registered by Busabase. Web and hosts without that capability keep the Inspector's existing sandboxed iframe. A successful handoff means the host accepted navigation, not that the guest page loaded.
+
+**Local token persistence:** the official Sidebar Browser stores its full current URL, including any preview bearer token, in the local `dsh.sidebar-browser.v1.<session>` checkpoint. Closing the browser tab removes that checkpoint; hiding it, switching sessions, or unloading this plugin does not. This integration accepts that host-owned local persistence. The adapter deduplicates by session, Space, and ChangeRequest, never by URL or token, and never logs preview URLs.
+
+Use **Reopen**, a card click, or **Reload preview** for a deliberate retry after closing a tab or a failed handoff. Native browser Reload retries the existing URL; an expired token requires a fresh authorized preview request (click the original ChangeRequest card again when its tool result has no preview URL). Failed preview fetches are not retried automatically. Review and merge remain in Busabase Cloud.
+
 ## Current boundaries
 
 - The default setup targets a single local Busabase workspace;
