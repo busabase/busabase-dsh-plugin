@@ -1,7 +1,7 @@
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import type { ISessions } from "@deepseek-ai/dsh-api-session-controller/client";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import type React from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import { apply, busabaseRefFromLink, extractToolPayload } from "./client.js";
@@ -11,7 +11,70 @@ type SessionId = Parameters<ISessions["binding"]>[0];
 
 const effectDisposers: Array<() => void> = [];
 
-function setup(config: Parameters<typeof apply>[1] = {}) {
+function cloudBlock(id: string, spaceId = "org_original", previewUrl?: string) {
+  return {
+    kind: "tool-result",
+    call: {
+      name: "mcp__busabase__change_requests_get",
+      argsRaw: JSON.stringify({ targetSpaceId: spaceId }),
+    },
+    content: [
+      {
+        type: "text",
+        text: JSON.stringify({
+          id,
+          type: "change-request",
+          status: "in_review",
+          operations: [],
+          name: id,
+          ...(previewUrl
+            ? {
+                typeId: id,
+                targetName: id,
+                url: previewUrl,
+                iframeUrl: previewUrl,
+                autoPreview: true,
+              }
+            : {}),
+        }),
+      },
+    ],
+    isError: false,
+  };
+}
+
+function desktopServices(session: () => string | undefined = () => "session_1") {
+  vi.stubGlobal("dshDesktop", { protocolVersion: 1, browser: { acquire: vi.fn() } });
+  return {
+    sidebarRight: { mounted: { getSnapshot: session }, openTab: vi.fn() },
+    sidebarRightTabs: { get: () => ({ id: "@deepseek-ai/dsh-client-ui-sidebar-browser" }) },
+    workspaces: {},
+  };
+}
+
+function dispatchLinkClick(link: HTMLAnchorElement, options: MouseEventInit = {}): boolean {
+  let intercepted = false;
+  // Observe the plugin first, then cancel jsdom's unsupported default navigation.
+  document.addEventListener(
+    "click",
+    (event) => {
+      intercepted = event.defaultPrevented;
+      event.preventDefault();
+    },
+    { once: true },
+  );
+  link.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true, ...options }));
+  return intercepted;
+}
+
+function setup(
+  config: Parameters<typeof apply>[1] = {},
+  services: {
+    sidebarRight?: Record<string, unknown>;
+    sidebarRightTabs?: Record<string, unknown>;
+    workspaces?: unknown;
+  } = {},
+) {
   const registrations: Array<{
     config: Record<string, unknown>;
     component: React.ComponentType<any>;
@@ -19,6 +82,11 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
   const layout = { openRightbar: vi.fn(), closeRightbar: vi.fn() };
   const prompt = vi.fn(async () => ({ ok: true, value: { accepted: true } }));
   const binding = vi.fn((sessionId: SessionId) => ({ sessionId, session: { prompt } }));
+  const serviceMap: Record<string, unknown> = {
+    sidebarRight: services.sidebarRight,
+    sidebarRightTabs: services.sidebarRightTabs,
+    workspaces: services.workspaces,
+  };
   const ctx = {
     effect: vi.fn((execute: () => unknown) => {
       const dispose = execute();
@@ -29,6 +97,7 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
     sessions: {
       binding,
     },
+    get: (name: string) => serviceMap[name],
     slots: {
       inject: (_name: string, factory: () => unknown) => factory(),
       register: (registration: Record<string, unknown>, component: React.ComponentType<any>) => {
@@ -42,11 +111,15 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
     ...config,
     liveRefresh: { enabled: false, ...config.liveRefresh },
   });
-  const card = (key: string) =>
-    registrations.find(({ config: registration }) => registration.key === key)!.component;
+  const card = (key: string) => {
+    const registration = registrations.find(({ config: value }) => value.key === key);
+    if (!registration) throw new Error(`Missing card registration: ${key}`);
+    return registration.component;
+  };
   const Details = registrations.find(
     ({ config: registration }) => registration.name === "rightbar",
-  )!.component;
+  )?.component;
+  if (!Details) throw new Error("Missing details registration");
   return { registrations, layout, prompt, binding, card, Details };
 }
 
@@ -58,6 +131,274 @@ afterEach(() => {
 });
 
 describe("client plugin", () => {
+  it.each(["web", "protocol", "acquire", "workspaces", "provider", "throw"])(
+    "retains the existing sandbox when native handoff is unavailable (%s)",
+    async (reason) => {
+      const services = desktopServices();
+      if (reason === "web") vi.stubGlobal("dshDesktop", undefined);
+      if (reason === "protocol")
+        vi.stubGlobal("dshDesktop", { protocolVersion: 2, browser: { acquire: vi.fn() } });
+      if (reason === "acquire") vi.stubGlobal("dshDesktop", { protocolVersion: 1, browser: {} });
+      if (reason === "workspaces") services.workspaces = undefined as never;
+      if (reason === "provider") services.sidebarRightTabs.get = () => ({ id: "replacement" });
+      if (reason === "throw")
+        services.sidebarRight.openTab.mockImplementation(() => {
+          throw new Error("host unavailable");
+        });
+      const { card, Details } = setup({ baseUrl: "https://busabase.com" }, services);
+      const Card = card("mcp__busabase__change_requests_get");
+      render(
+        <>
+          <Card
+            toolName="mcp__busabase__change_requests_get"
+            sessionId={"session_1" as SessionId}
+            block={cloudBlock(
+              "crq1",
+              "org_original",
+              "https://busabase.com/embed/change-request/crq1?token=test",
+            )}
+          />
+          <Details />
+        </>,
+      );
+      const frame = await screen.findByTitle("crq1 Change Request");
+      expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms allow-same-origin");
+      expect(frame.getAttribute("referrerPolicy")).toBe("no-referrer");
+      expect(services.sidebarRight.openTab).toHaveBeenCalledTimes(reason === "throw" ? 1 : 0);
+      if (reason === "throw") {
+        services.sidebarRight.openTab.mockReset();
+        fireEvent.click(screen.getByRole("button", { name: "More" }));
+        fireEvent.click(screen.getByRole("menuitem", { name: "Reload preview" }));
+        expect(services.sidebarRight.openTab).toHaveBeenCalledOnce();
+      }
+    },
+  );
+
+  it("retries a failed Cloud preview fetch only on deliberate Reload", async () => {
+    const services = desktopServices();
+    const fetchPreview = vi
+      .fn()
+      .mockResolvedValueOnce(new Response("unavailable", { status: 503 }))
+      .mockImplementation(() =>
+        Promise.resolve(
+          new Response(
+            JSON.stringify({
+              type: "change-request",
+              typeId: "crq1",
+              url: "https://busabase.com/embed/emb1?token=test",
+              iframeUrl: "https://busabase.com/embed/emb1?token=test",
+              autoPreview: true,
+            }),
+          ),
+        ),
+      );
+    vi.stubGlobal("fetch", fetchPreview);
+    const { card, Details } = setup({ baseUrl: "https://busabase.com" }, services);
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={cloudBlock("crq1")}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /crq1/ }));
+    await screen.findByText("Could not load the Cloud ChangeRequest preview.");
+    expect(fetchPreview).toHaveBeenCalledOnce();
+    fireEvent.click(screen.getByRole("button", { name: "More" }));
+    fireEvent.click(screen.getByRole("menuitem", { name: "Reload preview" }));
+    await waitFor(() => expect(services.sidebarRight.openTab).toHaveBeenCalledOnce());
+    expect(fetchPreview).toHaveBeenCalledTimes(2);
+  });
+
+  it("does not fetch or dispatch when ChangeRequest previews are disabled", () => {
+    const services = desktopServices();
+    const fetchPreview = vi.fn();
+    vi.stubGlobal("fetch", fetchPreview);
+    const { card, Details } = setup(
+      { baseUrl: "https://busabase.com", changeRequestIframe: { enabled: false } },
+      services,
+    );
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={cloudBlock("crq1")}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /crq1/ }));
+    expect(fetchPreview).not.toHaveBeenCalled();
+    expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
+  });
+  it.each(["change-request/crq1?token=test", "emb1?token=test"])(
+    "hands off recognized Cloud links (%s) only after native dispatch",
+    (path) => {
+      const services = desktopServices();
+      setup({ baseUrl: "https://busabase.com", spaceId: "org_original" }, services);
+      const link = document.createElement("a");
+      link.href = `https://busabase.com/embed/${path}`;
+      document.body.append(link);
+      expect(dispatchLinkClick(link)).toBe(true);
+      expect(services.sidebarRight.openTab).toHaveBeenCalledWith("browser", {
+        params: { url: expect.stringContaining("https://busabase.com/embed/") },
+      });
+      services.sidebarRight.openTab.mockImplementationOnce(() => {
+        throw new Error("unloaded");
+      });
+      expect(dispatchLinkClick(link)).toBe(false);
+      link.remove();
+    },
+  );
+
+  it("leaves unsafe origins and disabled Cloud previews alone", () => {
+    const services = desktopServices();
+    setup({ baseUrl: "https://busabase.com", changeRequestIframe: { enabled: false } }, services);
+    for (const href of [
+      "https://busabase.com/embed/change-request/crq1",
+      "https://attacker.example/embed/change-request/crq1",
+    ]) {
+      const link = document.createElement("a");
+      link.href = href;
+      document.body.append(link);
+      expect(dispatchLinkClick(link)).toBe(false);
+      link.remove();
+    }
+    expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
+  });
+
+  it("leaves Web Cloud links and modified Desktop clicks alone", () => {
+    const services = desktopServices();
+    setup({ baseUrl: "https://busabase.com" }, services);
+    const link = document.createElement("a");
+    link.href = "https://busabase.com/embed/change-request/crq1?token=test";
+    document.body.append(link);
+    expect(dispatchLinkClick(link, { ctrlKey: true })).toBe(false);
+    vi.stubGlobal("dshDesktop", undefined);
+    expect(dispatchLinkClick(link)).toBe(false);
+    expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
+    link.remove();
+  });
+
+  it("auto-dispatches once and deliberately reopens a Cloud card without duplicate inspector dispatch", async () => {
+    const services = desktopServices();
+    const { card, Details } = setup({ baseUrl: "https://busabase.com" }, services);
+    const Card = card("mcp__busabase__change_requests_get");
+    const view = render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={cloudBlock(
+            "crq1",
+            "org_original",
+            "https://busabase.com/embed/change-request/crq1?token=test",
+          )}
+        />
+        <Details />
+      </>,
+    );
+    await waitFor(() => expect(services.sidebarRight.openTab).toHaveBeenCalledTimes(1));
+    expect(screen.queryByTitle("crq1 Change Request")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: /crq1/ }));
+    expect(services.sidebarRight.openTab).toHaveBeenCalledTimes(2);
+    view.unmount();
+  });
+
+  it.each([
+    "session",
+    "unmounted-session",
+    "selection",
+    "space",
+    "reload",
+    "unmount",
+    "wrong-cr",
+    "wrong-space",
+  ])("rejects a late or mismatched Cloud response (%s)", async (scenario) => {
+    let session: string | undefined = "session_1";
+    const services = desktopServices(() => session);
+    let resolvePreview!: (response: Response) => void;
+    const fetchPreview = vi.fn().mockImplementation(
+      () =>
+        new Promise<Response>((resolve) => {
+          resolvePreview = resolve;
+        }),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const { card, Details } = setup(
+      { baseUrl: "https://busabase.com", spaceId: "org_default" },
+      services,
+    );
+    const Card = card("mcp__busabase__change_requests_get");
+    const view = render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={cloudBlock("crq1")}
+        />
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={(scenario === "space" ? "session_1" : "session_2") as SessionId}
+          block={cloudBlock(scenario === "space" ? "crq1" : "crq2", "org_other")}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getAllByRole("button", { name: /crq1/ })[0]);
+    await waitFor(() => expect(fetchPreview).toHaveBeenCalledOnce());
+    const originatingResolve = resolvePreview;
+    if (scenario === "session") session = "session_2";
+    if (scenario === "unmounted-session") session = undefined;
+    if (scenario === "selection" || scenario === "space") {
+      if (scenario === "selection") session = "session_2";
+      fireEvent.click(
+        scenario === "space"
+          ? screen.getAllByRole("button", { name: /crq1/ })[1]
+          : screen.getByRole("button", { name: /crq2/ }),
+      );
+      await waitFor(() => expect(fetchPreview).toHaveBeenCalledTimes(2));
+      expect(String(fetchPreview.mock.calls[1][0])).toContain("spaceId=org_other");
+    }
+    if (scenario === "reload") {
+      fireEvent.click(screen.getByRole("button", { name: "More" }));
+      fireEvent.click(screen.getByRole("menuitem", { name: "Reload preview" }));
+      await waitFor(() => expect(fetchPreview).toHaveBeenCalledTimes(2));
+    }
+    if (scenario === "unmount") view.unmount();
+    if (["selection", "space", "reload", "unmount"].includes(scenario))
+      expect(fetchPreview.mock.calls[0][1].signal.aborted).toBe(true);
+    await act(async () =>
+      originatingResolve(
+        new Response(
+          JSON.stringify({
+            type: "change-request",
+            typeId: scenario === "wrong-cr" ? "crqOther" : "crq1",
+            targetSpaceId: scenario === "wrong-space" ? "org_other" : "org_original",
+            url: "https://busabase.com/embed/emb1?token=test",
+            iframeUrl: "https://busabase.com/embed/emb1?token=test",
+            autoPreview: true,
+          }),
+        ),
+      ),
+    );
+    await waitFor(() => {
+      if (scenario.startsWith("wrong"))
+        expect(screen.getByText("Cloud returned no valid ChangeRequest preview.")).toBeTruthy();
+      else expect(screen.queryByTitle("crq1 Change Request")).toBeNull();
+    });
+    expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
+    if (scenario === "selection" || scenario === "space")
+      expect(
+        screen.getByRole("heading", { name: scenario === "space" ? "crq1" : "crq2" }),
+      ).toBeTruthy();
+  });
   it("loads an existing Cloud ChangeRequest preview in its original Space", async () => {
     const fetchPreview = vi.fn().mockResolvedValue(
       new Response(
@@ -108,6 +449,186 @@ describe("client plugin", () => {
     expect(frame.getAttribute("sandbox")).toBe("allow-scripts allow-forms allow-same-origin");
     expect(String(fetchPreview.mock.calls[0][0])).toContain("spaceId=org_original");
     expect(fetchPreview).toHaveBeenCalledOnce();
+  });
+
+  it("opens a Cloud ChangeRequest preview through the host's native Sidebar browser instead of an iframe", async () => {
+    vi.stubGlobal("dshDesktop", { protocolVersion: 1, browser: { acquire: vi.fn() } });
+    const fetchPreview = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "change-request",
+          typeId: "cr_1",
+          url: "https://busabase.com/embed/emb_1?token=test",
+          iframeUrl: "https://busabase.com/embed/emb_1?token=test&view=iframe",
+          autoPreview: true,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const openTab = vi.fn();
+    const { card, Details } = setup(
+      { baseUrl: "https://busabase.com", spaceId: "org_default" },
+      {
+        sidebarRight: { mounted: { getSnapshot: () => "session_1" }, openTab },
+        sidebarRightTabs: {
+          get: (kind: string) =>
+            kind === "browser" ? { id: "@deepseek-ai/dsh-client-ui-sidebar-browser" } : undefined,
+        },
+        workspaces: {},
+      },
+    );
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={{
+            kind: "tool-result",
+            call: {
+              name: "mcp__busabase__change_requests_get",
+              argsRaw: JSON.stringify({ targetSpaceId: "org_original" }),
+            },
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: "cr_1",
+                  status: "in_review",
+                  operations: [],
+                  name: "Reading Progress",
+                }),
+              },
+            ],
+            isError: false,
+          }}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Reading Progress/ }));
+    await waitFor(() => expect(openTab).toHaveBeenCalledTimes(1));
+    expect(openTab).toHaveBeenCalledWith("browser", {
+      params: { url: "https://busabase.com/embed/emb_1?token=test&view=iframe" },
+    });
+    expect(screen.queryByTitle("Reading Progress Change Request")).toBeNull();
+    expect(screen.getByText(/Sent to the Sidebar Browser/)).not.toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Reopen" }));
+    expect(openTab).toHaveBeenCalledTimes(2);
+  });
+
+  it("keeps the iframe fallback when the host has no registered browser Sidebar tab", async () => {
+    const fetchPreview = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "change-request",
+          typeId: "cr_1",
+          url: "https://busabase.com/embed/emb_1?token=test",
+          iframeUrl: "https://busabase.com/embed/emb_1?token=test&view=iframe",
+          autoPreview: true,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const openTab = vi.fn();
+    const { card, Details } = setup(
+      { baseUrl: "https://busabase.com", spaceId: "org_default" },
+      {
+        sidebarRight: { mounted: { getSnapshot: () => "session_1" }, openTab },
+        sidebarRightTabs: { get: () => undefined },
+      },
+    );
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={{
+            kind: "tool-result",
+            call: {
+              name: "mcp__busabase__change_requests_get",
+              argsRaw: JSON.stringify({ targetSpaceId: "org_original" }),
+            },
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: "cr_1",
+                  status: "in_review",
+                  operations: [],
+                  name: "Reading Progress",
+                }),
+              },
+            ],
+            isError: false,
+          }}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Reading Progress/ }));
+    const frame = await screen.findByTitle("Reading Progress Change Request");
+    expect(frame.getAttribute("src")).toBe(
+      "https://busabase.com/embed/emb_1?token=test&view=iframe",
+    );
+    expect(openTab).not.toHaveBeenCalled();
+  });
+
+  it("does not open a native preview for a session the user already switched away from", async () => {
+    const fetchPreview = vi.fn().mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          type: "change-request",
+          typeId: "cr_1",
+          url: "https://busabase.com/embed/emb_1?token=test",
+          iframeUrl: "https://busabase.com/embed/emb_1?token=test&view=iframe",
+          autoPreview: true,
+        }),
+      ),
+    );
+    vi.stubGlobal("fetch", fetchPreview);
+    const openTab = vi.fn();
+    const { card, Details } = setup(
+      { baseUrl: "https://busabase.com", spaceId: "org_default" },
+      {
+        sidebarRight: { mounted: { getSnapshot: () => "session_other" }, openTab },
+        sidebarRightTabs: { get: (kind: string) => (kind === "browser" ? {} : undefined) },
+      },
+    );
+    const Card = card("mcp__busabase__change_requests_get");
+    render(
+      <>
+        <Card
+          toolName="mcp__busabase__change_requests_get"
+          sessionId={"session_1" as SessionId}
+          block={{
+            kind: "tool-result",
+            call: {
+              name: "mcp__busabase__change_requests_get",
+              argsRaw: JSON.stringify({ targetSpaceId: "org_original" }),
+            },
+            content: [
+              {
+                type: "text",
+                text: JSON.stringify({
+                  id: "cr_1",
+                  status: "in_review",
+                  operations: [],
+                  name: "Reading Progress",
+                }),
+              },
+            ],
+            isError: false,
+          }}
+        />
+        <Details />
+      </>,
+    );
+    fireEvent.click(screen.getByRole("button", { name: /Reading Progress/ }));
+    expect(screen.queryByTitle("Reading Progress Change Request")).toBeNull();
+    expect(fetchPreview).not.toHaveBeenCalled();
+    expect(openTab).not.toHaveBeenCalled();
   });
   it("registers keyed Busabase cards and opens the right panel on selection", () => {
     const { registrations, layout, card } = setup();
