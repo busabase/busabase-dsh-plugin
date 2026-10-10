@@ -11,8 +11,13 @@ import type { RunningToolCall, ToolResultNode } from "@deepseek-ai/dsh-client-ui
 import { cleanup, fireEvent, waitFor, within } from "@testing-library/react";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { apply as applyBusabase, inject as injectBusabase } from "./client.js";
-import { BUSABASE_HOST_CONFIG_GLOBAL, type BusabaseClientConfig } from "./client-config.js";
+import {
+  BUSABASE_HOST_CONFIG_GLOBAL,
+  type BusabaseClientConfig,
+  toBusabaseClientConfig,
+} from "./client-config.js";
 import { BusabaseInspectorStore } from "./client-store.js";
+import { resolveConfig } from "./config.js";
 
 type SessionId = Parameters<ISessions["binding"]>[0];
 
@@ -142,30 +147,41 @@ const changeRequestResult = (): ToolResultNode => ({
   subCalls: [],
 });
 
+const CRM_ENTITY_RESPONSE = {
+  id: "bse_crm",
+  baseId: "bse_crm",
+  nodeId: "nod_crm",
+  type: "base",
+  name: "CRM",
+  fields: [],
+  reviewPolicy: { kind: "single", requiredApprovals: 1 },
+};
+
+const RUNTIME_CONFIG_RESPONSE = toBusabaseClientConfig(resolveConfig({}));
+
 beforeEach(() => {
   Object.defineProperty(document, "fonts", {
     configurable: true,
     value: { addEventListener: vi.fn(), removeEventListener: vi.fn() },
   });
   localStorage.clear();
+  vi.stubGlobal(BUSABASE_HOST_CONFIG_GLOBAL, undefined);
   vi.stubGlobal("ResizeObserver", ResizeObserverStub);
   vi.stubGlobal(
     "fetch",
-    vi.fn(
-      async () =>
-        new Response(
-          JSON.stringify({
-            id: "bse_crm",
-            baseId: "bse_crm",
-            nodeId: "nod_crm",
-            type: "base",
-            name: "CRM",
-            fields: [],
-            reviewPolicy: { kind: "single", requiredApprovals: 1 },
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        ),
-    ),
+    vi.fn(async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/busabase-api/config")) {
+        return new Response(JSON.stringify(RUNTIME_CONFIG_RESPONSE), {
+          status: 200,
+          headers: { "content-type": "application/json" },
+        });
+      }
+      return new Response(JSON.stringify(CRM_ENTITY_RESPONSE), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }),
   );
 });
 
@@ -203,6 +219,10 @@ it("registers Busabase ToolViews before slot declaration and opens the canonical
     name: "busabase-test-client",
     inject: [...injectBusabase],
     apply: (ctx) => applyBusabase(ctx, { liveRefresh: { enabled: false } }),
+  });
+  expect(vi.mocked(fetch)).toHaveBeenCalledWith("/busabase-api/config", {
+    credentials: "same-origin",
+    cache: "no-store",
   });
   expect(runtime.slots.entries("tool.call.toolview").map((entry) => entry.options.key)).toContain(
     TOOL_NAME,

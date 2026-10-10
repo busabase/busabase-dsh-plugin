@@ -23,6 +23,23 @@ const link = {
 };
 
 describe("SDK contract-backed MCP embed client", () => {
+  it("uses only the narrow CR preview tool and forwards its Space and abort signal", async () => {
+    const callTool = vi.fn().mockResolvedValue({ content: [], structuredContent: link });
+    const signal = new AbortController().signal;
+    const client = createMcpEmbedClient({ callTool }, "selected-space");
+    await expect(
+      client.createChangeRequestPreviewLink?.({ changeRequestId: input.typeId }, { signal }),
+    ).resolves.toEqual(link);
+    expect(callTool).toHaveBeenCalledWith(
+      {
+        name: "change_requests_create_preview_link",
+        arguments: { changeRequestId: input.typeId, targetSpaceId: "selected-space" },
+      },
+      undefined,
+      { signal, timeout: 60_000 },
+    );
+  });
+
   it.each(["structured", "content"])(
     "validates %s results and preserves SDK metadata",
     async (format) => {

@@ -1,4 +1,5 @@
 import type { IncomingMessage, ServerResponse } from "node:http";
+import type { BusabaseClientConfig } from "./client-config.js";
 import {
   createChangeRequestPreviewLink,
   createNodePreviewLink,
@@ -9,12 +10,14 @@ import type { BusabaseServerSupervisor } from "./server-supervisor.js";
 const PROXY_PREFIX = "/busabase-api/proxy";
 
 interface BusabaseServerRouterOptions {
+  clientConfig?: BusabaseClientConfig;
   supervisor?: BusabaseServerSupervisor;
   baseUrl?: string;
   previewClient?: (spaceId?: string) => EmbedLinksClient;
 }
 
 export function createBusabaseServerRouter({
+  clientConfig,
   supervisor,
   baseUrl,
   previewClient,
@@ -22,6 +25,14 @@ export function createBusabaseServerRouter({
   return async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     const url = new URL(request.url ?? "/", "http://localhost");
     const { pathname } = url;
+    if (request.method === "GET" && pathname === "/busabase-api/config" && clientConfig) {
+      if (!isSameOriginBrowserRequest(request)) {
+        sendJson(response, 403, { error: "Inspector configuration request rejected" });
+        return;
+      }
+      sendJson(response, 200, clientConfig);
+      return;
+    }
     if (supervisor && request.method === "GET" && pathname === "/busabase-api/server/status") {
       sendJson(response, 200, await supervisor.status());
       return;

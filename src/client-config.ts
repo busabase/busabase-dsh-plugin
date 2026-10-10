@@ -75,3 +75,19 @@ export function resolveBusabaseClientConfig(
     ...input,
   });
 }
+
+/** Resolve config when the plugin is enabled after the document's boot HTML was served. */
+export async function loadBusabaseHostConfig(): Promise<void> {
+  const response = await fetch("/busabase-api/config", {
+    credentials: "same-origin",
+    cache: "no-store",
+  });
+  if (!response.ok)
+    throw new Error(`Busabase client configuration unavailable (${response.status})`);
+  const value = await response.json();
+  if (!value || typeof value.baseUrl !== "string")
+    throw new Error("Invalid Busabase client configuration");
+  // Resolve before publishing so malformed URLs cannot silently become local defaults.
+  resolveConfig({ baseUrl: value.baseUrl });
+  (globalThis as Record<string, unknown>)[BUSABASE_HOST_CONFIG_GLOBAL] = value;
+}

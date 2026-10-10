@@ -2,6 +2,8 @@ import { EventEmitter } from "node:events";
 import type { IncomingMessage, ServerResponse } from "node:http";
 import { Readable } from "node:stream";
 import { describe, expect, it, vi } from "vitest";
+import { toBusabaseClientConfig } from "./client-config.js";
+import { resolveConfig } from "./config.js";
 import { createBusabaseServerRouter, isAllowedInspectorRequest } from "./server-router.js";
 
 function responseRecorder() {
@@ -24,6 +26,26 @@ function responseRecorder() {
 }
 
 describe("Busabase server router", () => {
+  it("serves safe Cloud configuration only to a same-origin browser", async () => {
+    const clientConfig = toBusabaseClientConfig(resolveConfig({ baseUrl: "https://busabase.com" }));
+    const router = createBusabaseServerRouter({ clientConfig });
+    for (const site of ["cross-site", "same-origin"]) {
+      const response = responseRecorder();
+      await router(
+        {
+          method: "GET",
+          url: "/busabase-api/config",
+          headers: {
+            host: "localhost:3080",
+            "sec-fetch-site": site,
+          },
+        } as never,
+        response as never,
+      );
+      expect(response.status).toBe(site === "same-origin" ? 200 : 403);
+      if (site === "same-origin") expect(JSON.parse(response.body ?? "null")).toEqual(clientConfig);
+    }
+  });
   it("does not expose local server controls or the API proxy through a Cloud-only router", async () => {
     const previewClient = vi.fn();
     const router = createBusabaseServerRouter({ previewClient });

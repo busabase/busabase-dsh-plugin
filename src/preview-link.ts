@@ -13,6 +13,10 @@ export interface EmbedLinksClient {
   embedLinks: {
     create(input: EmbedLinkInput, options?: EmbedLinkOptions): Promise<CreatedEmbedLink>;
   };
+  createChangeRequestPreviewLink?: (
+    input: { changeRequestId: string },
+    options?: EmbedLinkOptions,
+  ) => Promise<CreatedEmbedLink>;
 }
 export type CreatedPreviewLink = CreatedEmbedLink & { type: "node"; autoPreview: true };
 export type CreatedChangeRequestPreviewLink = CreatedEmbedLink & {
@@ -91,6 +95,12 @@ export async function createChangeRequestPreviewLink(
   changeRequestId: string,
   options?: EmbedLinkOptions,
 ): Promise<CreatedChangeRequestPreviewLink> {
+  if (client.createChangeRequestPreviewLink) {
+    const link = await client.createChangeRequestPreviewLink({ changeRequestId }, options);
+    if (link.type !== "change-request" || link.typeId !== changeRequestId)
+      throw new Error("Busabase returned a preview for a different target");
+    return { ...link, type: "change-request", autoPreview: true };
+  }
   return createPreviewLink(client, { type: "change-request", typeId: changeRequestId }, options);
 }
 

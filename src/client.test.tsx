@@ -37,7 +37,11 @@ function setup(config: Parameters<typeof apply>[1] = {}) {
       },
     },
   };
-  apply(ctx as never, { ...config, liveRefresh: { enabled: false, ...config.liveRefresh } });
+  apply(ctx as never, {
+    baseUrl: "http://localhost:15419",
+    ...config,
+    liveRefresh: { enabled: false, ...config.liveRefresh },
+  });
   const card = (key: string) =>
     registrations.find(({ config: registration }) => registration.key === key)!.component;
   const Details = registrations.find(
