@@ -252,7 +252,7 @@ describe("client plugin", () => {
       services.sidebarRight.openTab.mockImplementationOnce(() => {
         throw new Error("unloaded");
       });
-      expect(dispatchLinkClick(link)).toBe(false);
+      expect(dispatchLinkClick(link)).toBe(true);
       link.remove();
     },
   );
@@ -273,7 +273,7 @@ describe("client plugin", () => {
     expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
   });
 
-  it("leaves Web Cloud links and modified Desktop clicks alone", () => {
+  it("keeps modified Desktop clicks alone and routes Web Cloud links to Inspector", () => {
     const services = desktopServices();
     setup({ baseUrl: "https://busabase.com" }, services);
     const link = document.createElement("a");
@@ -281,7 +281,7 @@ describe("client plugin", () => {
     document.body.append(link);
     expect(dispatchLinkClick(link, { ctrlKey: true })).toBe(false);
     vi.stubGlobal("dshDesktop", undefined);
-    expect(dispatchLinkClick(link)).toBe(false);
+    expect(dispatchLinkClick(link)).toBe(true);
     expect(services.sidebarRight.openTab).not.toHaveBeenCalled();
     link.remove();
   });

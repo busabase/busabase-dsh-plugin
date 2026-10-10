@@ -107,6 +107,7 @@ export default defineConfig({
           "@testing-library/dom",
           "@deepseek-ai/dsh-client-test-runtime",
           "@deepseek-ai/dsh-client-ui-primitives",
+          "@deepseek-ai/dsh-client-ui-dockkit",
         ],
       },
     },
