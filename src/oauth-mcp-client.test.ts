@@ -2,6 +2,8 @@
 
 import { readFile } from "node:fs/promises";
 import { createServer } from "node:http";
+import { createRequire } from "node:module";
+import { pathToFileURL } from "node:url";
 import {
   type CredentialKey,
   type CredentialRecord,
@@ -393,14 +395,8 @@ describe("connectRemoteMcp", { timeout: 20_000 }, () => {
       expect(client.callTool).toHaveBeenNthCalledWith(
         2,
         {
-          name: "embed_links_create",
-          arguments: {
-            type: "change-request",
-            typeId: cr.id,
-            expiresInMinutes: 15,
-            framePolicy: { mode: "anywhere", allowedOrigins: [] },
-            targetSpaceId: "explicit-space",
-          },
+          name: "change_requests_create_preview_link",
+          arguments: { changeRequestId: cr.id, targetSpaceId: "explicit-space" },
         },
         undefined,
         { signal, timeout: 60_000 },
@@ -873,25 +869,20 @@ describe("plugin version", () => {
     expect(PLUGIN_VERSION).toBe(manifest.version);
   });
 
-  // The SDK version is written out rather than resolved through the workspace:
-  // this package ships its own .d.ts, so pulling the sibling's source into the
-  // program would break rootDir, and its published exports point at a dist that
-  // a fresh checkout has not built. A written-down version is therefore the only
-  // workable shape — but it used to rot silently, chased by hand three times
-  // (0.50.0, 0.52.1, 0.60.0) while 0.41.0 sat on npm in between. This fails the
-  // build the moment the two disagree, which is the part that was missing.
-  it("pins the SDK version the workspace actually builds", async () => {
-    // Only meaningful where the SDK is a sibling. In the standalone repository
-    // this package publishes from there is nothing to compare against, and the
-    // pin has already been fixed by whatever produced that checkout.
-    const sibling = new URL("../../busabase-sdk/package.json", import.meta.url);
-    const sdkManifest = await readFile(sibling, "utf8").catch(() => null);
-    if (sdkManifest === null) return;
+  // Check the dependency actually installed against the declared SDK pin.
+  // The SDK does not export its package.json subpath, so locate its manifest
+  // relative to the resolved entry point.
+  it("pins the SDK version actually installed from the published dependency", async () => {
+    const require = createRequire(import.meta.url);
+    const installedEntry = require.resolve("busabase-sdk");
+    const installedManifestUrl = new URL("../package.json", pathToFileURL(installedEntry));
+    const installedManifest = JSON.parse(await readFile(installedManifestUrl, "utf8")) as {
+      version: string;
+    };
 
     const manifest = JSON.parse(
       await readFile(new URL("../package.json", import.meta.url), "utf8"),
     ) as { dependencies: Record<string, string> };
-    const sdk = JSON.parse(sdkManifest) as { version: string };
-    expect(manifest.dependencies["busabase-sdk"]).toBe(sdk.version);
+    expect(manifest.dependencies["busabase-sdk"]).toBe(installedManifest.version);
   });
 });

@@ -7,7 +7,11 @@ import type { PropsRuntime } from "@deepseek-ai/dsh-client-ui-slots";
 import type { ToolCallOwnerProps, ToolCallViewProps } from "@deepseek-ai/dsh-client-ui-tool/client";
 import { Busabase } from "busabase-sdk";
 import React, { useEffect, useMemo, useState, useSyncExternalStore } from "react";
-import { resolveBusabaseClientConfig } from "./client-config.js";
+import {
+  loadBusabaseHostConfig,
+  readBusabaseHostConfig,
+  resolveBusabaseClientConfig,
+} from "./client-config.js";
 import { BusabaseInspectorStore } from "./client-store.js";
 import type { BusabasePluginConfig } from "./config.js";
 import {
@@ -121,7 +125,14 @@ const RAW_TOOL_NAMES = [
   "webhooks_update",
 ] as const;
 
-export function apply(ctx: Context, input: BusabasePluginConfig = {}): void {
+export function apply(ctx: Context, input: BusabasePluginConfig = {}): void | Promise<void> {
+  if (!input.baseUrl && !readBusabaseHostConfig()) {
+    return loadBusabaseHostConfig().then(() => registerClient(ctx, input));
+  }
+  registerClient(ctx, input);
+}
+
+function registerClient(ctx: Context, input: BusabasePluginConfig): void {
   ensureStyles();
   const config = resolveBusabaseClientConfig(input);
   const inspectorClient = config.server.manageable

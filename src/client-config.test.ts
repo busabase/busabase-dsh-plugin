@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 import {
   BUSABASE_HOST_CONFIG_GLOBAL,
+  loadBusabaseHostConfig,
   readBusabaseHostConfig,
   resolveBusabaseClientConfig,
   toBusabaseClientConfig,
@@ -10,6 +11,33 @@ import { resolveConfig } from "./config.js";
 afterEach(() => vi.unstubAllGlobals());
 
 describe("Busabase client config bridge", () => {
+  it("loads Cloud settings when a plugin is enabled after page boot", async () => {
+    vi.stubGlobal(BUSABASE_HOST_CONFIG_GLOBAL, undefined);
+    const config = toBusabaseClientConfig(resolveConfig({ baseUrl: "https://busabase.com" }));
+    const fetchConfig = vi.fn().mockResolvedValue(new Response(JSON.stringify(config)));
+    vi.stubGlobal("fetch", fetchConfig);
+    await loadBusabaseHostConfig();
+    expect(resolveBusabaseClientConfig({}).connection.mode).toBe("remote");
+    expect(fetchConfig).toHaveBeenCalledWith("/busabase-api/config", {
+      credentials: "same-origin",
+      cache: "no-store",
+    });
+  });
+  it("does not silently fall back to local mode when runtime config fails", async () => {
+    vi.stubGlobal(BUSABASE_HOST_CONFIG_GLOBAL, undefined);
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 404 })));
+    await expect(loadBusabaseHostConfig()).rejects.toThrow("configuration unavailable (404)");
+    expect(readBusabaseHostConfig()).toBeUndefined();
+  });
+  it("does not publish or fall back to local mode when the runtime response omits baseUrl", async () => {
+    vi.stubGlobal(BUSABASE_HOST_CONFIG_GLOBAL, undefined);
+    vi.stubGlobal(
+      "fetch",
+      vi.fn().mockResolvedValue(new Response(JSON.stringify({ spaceId: "selected-space" }))),
+    );
+    await expect(loadBusabaseHostConfig()).rejects.toThrow("Invalid Busabase client configuration");
+    expect(readBusabaseHostConfig()).toBeUndefined();
+  });
   it("projects only browser-safe settings from the resolved host config", () => {
     const hostConfig = resolveConfig({
       baseUrl: "https://busabase.com",

@@ -178,7 +178,10 @@ describe("remote MCP result preview augmentation", () => {
       url: "https://busabase.example/embed/emb_cloud",
       iframeUrl: "https://busabase.example/embed/emb_cloud?view=iframe",
     });
-    const previewClient = vi.fn(() => ({ embedLinks: { create } }));
+    const previewClient = vi.fn(() => ({
+      createChangeRequestPreviewLink: create,
+      embedLinks: { create: vi.fn() },
+    }));
     registerRemoteMcpResultPreview(
       {
         on: (_event, callback) => {
@@ -203,14 +206,7 @@ describe("remote MCP result preview augmentation", () => {
     );
 
     expect(previewClient).toHaveBeenCalledWith("spc_cloud");
-    expect(create).toHaveBeenCalledWith(
-      {
-        type: "change-request",
-        typeId: "crq_cloud",
-        framePolicy: { mode: "anywhere", allowedOrigins: [] },
-      },
-      { signal },
-    );
+    expect(create).toHaveBeenCalledWith({ changeRequestId: "crq_cloud" }, { signal });
     expect(decision.kind === "accept" && decision.content).toHaveLength(2);
   });
 

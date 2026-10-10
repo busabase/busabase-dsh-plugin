@@ -89,6 +89,7 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
         kind: "prefix",
         path: "/busabase-api",
         handler: createBusabaseServerRouter({
+          clientConfig: toBusabaseClientConfig(config),
           previewClient: (spaceId) => handle.previewClient(spaceId),
         }),
       }),
@@ -103,6 +104,7 @@ export async function apply(ctx: Context, input: BusabasePluginConfig = {}): Pro
       kind: "prefix",
       path: "/busabase-api",
       handler: createBusabaseServerRouter({
+        clientConfig: toBusabaseClientConfig(config),
         supervisor,
         baseUrl: config.baseUrl,
         previewClient: () => client,
