@@ -27,6 +27,25 @@ type SessionId = Parameters<ISessions["binding"]>[0];
 
 export const name = "@busabase/dsh-plugin/client";
 export const inject = ["slots", "layout", "sessions"];
+const INSPECTOR_ID = "@busabase/dsh-plugin/inspector";
+const INSPECTOR_KIND = "busabase-inspector";
+
+function inspectorSidebar(ctx: Context) {
+  try {
+    const sidebar = ctx.get?.("sidebarRight");
+    const tabs = ctx.get?.("sidebarRightTabs");
+    return sidebar && typeof tabs?.register === "function" ? { sidebar, tabs } : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+function revealInspector(ctx: Context): void {
+  const services = inspectorSidebar(ctx);
+  if (services?.tabs.get(INSPECTOR_KIND)?.id === INSPECTOR_ID)
+    services.sidebar.openTab(INSPECTOR_KIND);
+  else ctx.layout.openRightbar(true, false);
+}
 
 const RAW_TOOL_NAMES = [
   "activity_list_for_node",
@@ -166,16 +185,15 @@ function registerClient(ctx: Context, input: BusabasePluginConfig): void {
       if (!target || target.hasAttribute("download")) return;
       const ref = busabaseRefFromLink(target.href, target.textContent, config.baseUrl);
       if (!ref) return;
-      if (config.connection.mode === "remote") {
-        const sessionId = mountedSession(ctx);
-        if (openNativePreview(ctx, store, nativePreview, ref, sessionId, true) === "opened")
-          event.preventDefault();
-        return;
-      }
+      if (ref.type === "change-request" && !config.changeRequestIframe.enabled) return;
+      const sessionId = mountedSession(ctx);
+      const nativeResult = openNativePreview(ctx, store, nativePreview, ref, sessionId, true);
+      if (nativeResult === "stale") return;
       event.preventDefault();
-      if (ref.type === "embed") store.selectPreview(ref);
-      else store.select(ref);
-      ctx.layout.openRightbar(true, false);
+      if (ref.type === "embed" || config.connection.mode === "remote")
+        store.selectPreview(ref, sessionId);
+      else store.select(ref, sessionId);
+      if (nativeResult !== "opened") revealInspector(ctx);
     };
     document.addEventListener("click", handleClick);
     return () => document.removeEventListener("click", handleClick);
@@ -191,9 +209,65 @@ function registerClient(ctx: Context, input: BusabasePluginConfig): void {
     );
   }
 
-  ctx.slots.register(
-    { name: "rightbar", priority: -10 },
-    createDetailsPanel(store, ctx, nativePreview),
+  const Panel = createDetailsPanel(store, ctx, nativePreview);
+  let alive = true;
+  let fallback: (() => unknown) | undefined;
+  const restoreFallback = () => {
+    if (alive && !fallback)
+      fallback = ctx.effect(
+        () => ctx.slots.register({ name: "rightbar", priority: -10 }, Panel),
+        "busabase: inspector root fallback",
+      );
+  };
+  const registerSidebar = (sidebarCtx: Context) => {
+    const services = inspectorSidebar(sidebarCtx);
+    if (!services) return;
+    sidebarCtx.effect(
+      () =>
+        services.tabs.register({
+          id: INSPECTOR_ID,
+          kind: INSPECTOR_KIND,
+          title: () => "Busabase Inspector",
+          guide: [{ id: "inspector", order: 50, title: () => "Busabase Inspector" }],
+        }),
+      "busabase: inspector tab type",
+    );
+    sidebarCtx.effect(
+      () =>
+        sidebarCtx.slots.inject("sidebar.right.pane.tab", () =>
+          sidebarCtx.slots.register(
+            { name: "sidebar.right.pane.tab", key: INSPECTOR_ID },
+            function InspectorTab(props) {
+              const info = props.useTabInfo();
+              return (
+                <Panel
+                  inspectorSessionId={props.sessionId}
+                  closeInspector={() => info.tab.actions.close()}
+                />
+              );
+            },
+          ),
+        ),
+      "busabase: inspector tab body",
+    );
+    fallback?.();
+    fallback = undefined;
+    sidebarCtx.effect(() => restoreFallback, "busabase: restore inspector fallback");
+  };
+  if (typeof ctx.inject === "function") {
+    restoreFallback();
+    ctx.inject(["sidebarRight", "sidebarRightTabs"], registerSidebar);
+  } else if (inspectorSidebar(ctx)) {
+    registerSidebar(ctx);
+  } else {
+    restoreFallback();
+  }
+  // Child-service teardown must not re-register a root during plugin disposal.
+  ctx.effect(
+    () => () => {
+      alive = false;
+    },
+    "busabase: inspector lifecycle",
   );
 }
 
@@ -324,8 +398,7 @@ function createToolCard(
       : undefined;
     useEffect(() => {
       if (!preview) return;
-      if (store.config.connection.mode === "remote" && !sessionMatches(ctx, sessionId ?? null))
-        return;
+      if (!sessionMatches(ctx, sessionId ?? null)) return;
       const nativeResult = openNativePreview(ctx, store, nativePreview, preview, sessionId ?? null);
       if (nativeResult === "stale") return;
       const selected = store.getSnapshot().selected;
@@ -347,7 +420,7 @@ function createToolCard(
       if (preview.type === "change-request" && store.config.connection.mode === "local")
         store.select(preview, sessionId ?? null);
       else store.selectPreview(preview, sessionId ?? null);
-      ctx.layout.openRightbar(true, false);
+      if (nativeResult !== "opened") revealInspector(ctx);
     }, [preview, sessionId, store, ctx, nativePreview]);
     return (
       <div className="bb-card-stack">
@@ -371,20 +444,20 @@ function createToolCard(
                 type="button"
                 className="bb-card-open"
                 onClick={() => {
-                  if (
-                    store.config.connection.mode === "remote" &&
-                    !sessionMatches(ctx, sessionId ?? null)
-                  )
-                    return;
-                  if (
-                    openNativePreview(ctx, store, nativePreview, ref, sessionId ?? null, true) ===
-                    "stale"
-                  )
-                    return;
+                  if (!sessionMatches(ctx, sessionId ?? null)) return;
+                  const nativeResult = openNativePreview(
+                    ctx,
+                    store,
+                    nativePreview,
+                    ref,
+                    sessionId ?? null,
+                    true,
+                  );
+                  if (nativeResult === "stale") return;
                   if (store.config.connection.mode === "local")
                     store.select(ref, sessionId ?? null);
                   else store.selectPreview(ref, sessionId ?? null);
-                  ctx.layout.openRightbar(true, false);
+                  if (nativeResult !== "opened") revealInspector(ctx);
                 }}
               >
                 <span className="bb-card-icon">{entityIcon(ref.type)}</span>
@@ -432,18 +505,24 @@ function createDetailsPanel(
   store: BusabaseInspectorStore,
   ctx: Context,
   nativePreview: NativeChangeRequestPreview,
-): React.FC<PropsRuntime<"rightbar">> {
-  return function BusabaseDetailsPanel() {
+): React.FC<
+  Partial<PropsRuntime<"rightbar">> & { inspectorSessionId?: string; closeInspector?: () => void }
+> {
+  return function BusabaseDetailsPanel({ inspectorSessionId, closeInspector }) {
     const snapshot = useSyncExternalStore(store.subscribe, store.getSnapshot, store.getSnapshot);
     const [fullscreen, setFullscreen] = useState(false);
     const [moreOpen, setMoreOpen] = useState(false);
     const [changeRequestFrameVersion, setChangeRequestFrameVersion] = useState(0);
-    const ref = snapshot.selected;
+    const ref =
+      inspectorSessionId === undefined || snapshot.selectedSessionId === inspectorSessionId
+        ? snapshot.selected
+        : null;
     const status =
       ref?.type === "change-request" ? changeRequestStatus(snapshot.data, ref.status) : ref?.status;
     const closePanel = () => {
       setFullscreen(false);
-      ctx.layout.closeRightbar();
+      if (closeInspector) closeInspector();
+      else ctx.layout.closeRightbar();
     };
     useEffect(() => {
       if (!fullscreen) return;

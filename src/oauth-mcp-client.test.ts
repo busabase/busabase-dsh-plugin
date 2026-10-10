@@ -869,9 +869,9 @@ describe("plugin version", () => {
     expect(PLUGIN_VERSION).toBe(manifest.version);
   });
 
-  // Check the dependency actually installed against the declared SDK pin.
-  // The SDK does not export its package.json subpath, so locate its manifest
-  // relative to the resolved entry point.
+  // Check the installed SDK against the manifest pin to verify that installation
+  // honored the declared dependency. Resolve its entry point because the SDK
+  // does not export a package.json subpath.
   it("pins the SDK version actually installed from the published dependency", async () => {
     const require = createRequire(import.meta.url);
     const installedEntry = require.resolve("busabase-sdk");
