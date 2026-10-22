@@ -23,7 +23,7 @@ const result: ToolResultNode = {
       text: JSON.stringify({
         id: "crq_cloud_test",
         type: "change_request",
-        name: "PUL-303 Cloud preview acceptance",
+        name: "Cloud preview acceptance",
         status: "in_review",
       }),
     },
@@ -81,7 +81,7 @@ it("renders a Cloud ChangeRequest through the DSH 0.2 keyed ToolView and reports
     { entryKey: result.call.name, session: sessionRef },
   );
   const view = slot.view;
-  const card = view.getByRole("button", { name: /PUL-303 Cloud preview acceptance/i });
+  const card = view.getByRole("button", { name: /Cloud preview acceptance/i });
   fireEvent.click(card);
   expect(layout.openRightbar).toHaveBeenCalledWith(true, false);
   const panel = document.querySelector(".bb-panel") as HTMLElement;

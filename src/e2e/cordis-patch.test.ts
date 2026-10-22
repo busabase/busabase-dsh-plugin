@@ -53,7 +53,7 @@ describe("buildCordisPatch", () => {
       config: { root: "/tmp/dsh-sessions", compression: "none", packChunks: false },
     });
 
-    // Regression guard (PUL-147): `dsh plugin add` already applies the
+    // Regression guard: `dsh plugin add` already applies the
     // package's bundled dsh.bundle.patch, which inserts the `busabase`
     // loader entry. This patch must never insert a second one, or Cordis
     // throws `duplicate loader entry id: busabase`.
