@@ -4,7 +4,8 @@ import { unwrapMcpResult } from "./normalize.js";
 import type { EmbedLinksClient } from "./preview-link.js";
 
 const embedContract = cloudContract.embedLinks.create["~orpc"];
-// The narrow preview endpoint uses the existing embed response schema.
+// The narrow endpoint is newer than the published SDK, which still supplies the
+// existing embed response schema until its next release.
 
 /** The OAuth grant targets MCP, while the SDK supplies the canonical embed contract. */
 export function createMcpEmbedClient(

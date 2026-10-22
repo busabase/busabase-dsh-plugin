@@ -869,9 +869,16 @@ describe("plugin version", () => {
     expect(PLUGIN_VERSION).toBe(manifest.version);
   });
 
-  // Check the installed SDK against the manifest pin to verify that installation
-  // honored the declared dependency. Resolve its entry point because the SDK
-  // does not export a package.json subpath.
+  // The SDK version is checked against the published dependency actually installed
+  // in node_modules, not a sibling source checkout: a workspace build can carry a
+  // newer sibling SDK than what this plugin's own `package.json` pin (and therefore
+  // what npm actually installs/builds against) declares, which made the former sibling-equality assertion fail on unrelated PRs
+  // whenever the two happened to be mid-bump relative to each other. The real contract
+  // this plugin needs is simpler: whatever `busabase-sdk` version is installed must
+  // match the pin in `package.json` — i.e. the lockfile/install actually honored the
+  // manifest. `busabase-sdk` doesn't export its own `./package.json` subpath, so it's
+  // resolved the same way `vitest.config.ts` resolves sibling packages: find the
+  // installed entry point via `require.resolve`, then walk up to its package root.
   it("pins the SDK version actually installed from the published dependency", async () => {
     const require = createRequire(import.meta.url);
     const installedEntry = require.resolve("busabase-sdk");
