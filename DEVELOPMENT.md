@@ -6,7 +6,7 @@ This document covers building `@busabase/dsh-plugin` from source, its internal a
 
 ## Install and manage the npm bundle
 
-Use a current DeepSeek Harness release compatible with this package's peer dependencies, Node.js `>=24.18.0`, and pnpm on `PATH`. Busabase does not need to be running before installation: the plugin starts `busabase@latest` on `127.0.0.1:15419` when needed, or reuses a healthy Busabase Personal Desktop or local server.
+Use DeepSeek Harness 0.2.1-rc.2 or a later 0.2.x release, Node.js `>=24.18.0`, and pnpm on `PATH`. Busabase does not need to be running before installation: the plugin starts `busabase@latest` on `127.0.0.1:15419` when needed, or reuses a healthy Busabase Personal Desktop or local server.
 
 ### Install into the Web profile
 
