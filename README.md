@@ -16,7 +16,7 @@ Watch DeepSeek Harness use the plugin to create a CRM AirApp, submit changes for
 
 ### Requirements
 
-- A current DeepSeek Harness release compatible with this package's peer dependencies;
+- DeepSeek Harness 0.2.1-rc.2 or a later 0.2.x release (`npx @deepseek-ai/dsh` uses the latest one);
 - Node.js `>=24.18.0`;
 - pnpm available on `PATH`.
 
@@ -29,6 +29,8 @@ npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
 The package activates both the Host and Web sides automatically. Its reviewed Skills are already included in the npm package, so installation does not need lifecycle-script approval. For installation verification, updates, removal, and notes about older releases, see [Install and manage the npm bundle](DEVELOPMENT.md#install-and-manage-the-npm-bundle).
+
+DeepSeek Harness installs plugins with pnpm, which skips versions published within its `minimumReleaseAge` window. For about a day after a release, the command above may pick an older version. Add the version (`@busabase/dsh-plugin@<version>`) to install the newest one right away. In Desktop, enter the same spec under **Plugins → Add plugin**.
 
 ### 2. Choose Local or Cloud
 

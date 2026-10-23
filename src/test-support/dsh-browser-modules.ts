@@ -6,10 +6,12 @@ import * as clientStore from "@deepseek-ai/dsh-client-store";
 import * as dockkit from "@deepseek-ai/dsh-client-ui-dockkit";
 import * as primitives from "@deepseek-ai/dsh-client-ui-primitives";
 import * as slots from "@deepseek-ai/dsh-client-ui-slots";
+import * as reactVirtual from "@tanstack/react-virtual";
 import * as react from "react";
 import * as jsxRuntime from "react/jsx-runtime";
 import * as reactDom from "react-dom";
 import * as reactDomClient from "react-dom/client";
+import * as zod from "zod";
 
 interface ClientBundleDefinition {
   id: string;
@@ -32,6 +34,10 @@ const externalModules = new Map<string, unknown>([
   ["react-dom", reactDom],
   ["react-dom/client", reactDomClient],
   ["react/jsx-runtime", jsxRuntime],
+  // Harness 0.2.1 client bundles load these from the host: conversation
+  // needs zod, chat needs @tanstack/react-virtual.
+  ["zod", zod],
+  ["@tanstack/react-virtual", reactVirtual],
 ]);
 
 const definitions = new Map<string, ClientBundleDefinition>();
@@ -43,7 +49,24 @@ const normalizeClientId = (id: string): string => id.replace(/\/client$/, "");
 const clientBundlePath = (id: string, parentPath?: string): string => {
   const requireFromParent = parentPath ? createRequire(parentPath) : rootRequire;
   const packageJson = requireFromParent.resolve(`${normalizeClientId(id)}/package.json`);
-  return join(dirname(packageJson), "lib/client.js");
+  // Harness 0.2.1 splits some client entries into browser/node builds
+  // (`./client` → { browser: "./lib/client.browser.js", node: ... }); jsdom
+  // stands in for the browser, so follow the browser condition when present.
+  const manifest = JSON.parse(readFileSync(packageJson, "utf8")) as {
+    exports?: Record<string, unknown>;
+  };
+  const clientExport = manifest.exports?.["./client"];
+  const browserEntry =
+    typeof clientExport === "string"
+      ? clientExport
+      : clientExport && typeof clientExport === "object"
+        ? ((clientExport as Record<string, unknown>).browser ??
+          (clientExport as Record<string, unknown>).default)
+        : undefined;
+  return join(
+    dirname(packageJson),
+    typeof browserEntry === "string" ? browserEntry : "lib/client.js",
+  );
 };
 
 const exposeRendererTestExports = (source: string): string => {

@@ -6,7 +6,7 @@
 
 ## 安装与管理 npm Bundle
 
-请使用与本包 peer dependencies 兼容的当前 DeepSeek Harness 版本、Node.js `>=24.18.0`，并确保 `PATH` 中存在 pnpm。安装前不需要启动 Busabase：插件会在需要时于 `127.0.0.1:15419` 启动 `busabase@latest`，或复用健康的 Busabase Personal Desktop / 本地服务。
+请使用 DeepSeek Harness 0.2.1-rc.2 或之后的 0.2.x 版本、Node.js `>=24.18.0`，并确保 `PATH` 中存在 pnpm。安装前不需要启动 Busabase：插件会在需要时于 `127.0.0.1:15419` 启动 `busabase@latest`，或复用健康的 Busabase Personal Desktop / 本地服务。
 
 ### 安装到 Web profile
 

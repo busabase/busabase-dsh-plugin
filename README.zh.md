@@ -16,7 +16,7 @@
 
 ### 环境要求
 
-- 与本包 peer dependencies 兼容的当前 DeepSeek Harness 版本；
+- DeepSeek Harness 0.2.1-rc.2 或之后的 0.2.x 版本（`npx @deepseek-ai/dsh` 默认用最新版）；
 - Node.js `>=24.18.0`；
 - `PATH` 中可用 pnpm。
 
@@ -29,6 +29,8 @@ npx @deepseek-ai/dsh plugin --profile web add @busabase/dsh-plugin
 ```
 
 安装包会自动激活 Host 和 Web 两端。经过审阅的 Skills 已经包含在 npm 包中，因此安装不需要授权生命周期脚本。安装验证、更新、删除和旧版本说明见 [安装与管理 npm Bundle](DEVELOPMENT.zh.md#安装与管理-npm-bundle)。
+
+DeepSeek Harness 用 pnpm 安装插件，pnpm 会跳过 `minimumReleaseAge` 观察期内新发布的版本。新版本发布后的大约一天内，上面的命令可能装到旧版本。在包名后加上版本号（`@busabase/dsh-plugin@<版本>`）即可立刻安装最新版。Desktop 中在 **Plugins → Add plugin** 里输入同样的写法。
 
 ### 2. 选择本地或 Cloud
 
