@@ -81,7 +81,7 @@
     "@deepseek-ai/dsh-util-values": "0.2.1-rc.2",
     "@deepseek-ai/schemastery": "~3.18.4",
     "@modelcontextprotocol/sdk": "1.26.0",
-    "busabase-sdk": "0.95.1",
+    "busabase-sdk": "1.0.0",
     "clsx": "2.1.1",
     "open": "11.0.1",
     "simple-icons": "16.31.0"
